@@ -1,0 +1,19 @@
+ 现在我希望将桌面上的start_full.sh 中所涉及的代码文件 整合到一个目录下 形成一个 大项目
+    大项目中运行允许由几个子部分组成
+    但是大项目的 input -> 串口 /dev/ttyUSB0 发送的帧头 + 12 个二进制数字组成的数组(kfs 分部矩阵) + 帧尾
+    通过接受kfs 分布 矩阵  + 预设的场景 (red 或者 blue  ，这个决定了 path_plan 的 height_map , end_coord 是(0,0)blue 还是 （0,2）red ) 
+通过以上的数据来进行A* 路径规划 ， 规划出 R2 在梅林中的行进路线(/path/commands , 这个要转化为二进制数组 ， 但是目前R1的规划还用不到)
+同时A* 规划可能也会有 R2 跨越的 R1 kfs (如果没有 遍历 3个 R1 kfs的组合 ， 选取total_cost min的 ; 如果只跨越了一个,以被跨越的R1 kfs为基准 ， 遍历剩下2个与该R1 kfs的组合 ， 选取total_cost min的组合;
+如果被跨越的R1 kfs 已经有2个了 ， 就选取这2个 )   （我说的这些，各个代码里应该已经实现了， 但是希望整合到一个目录下的大项目里 ， 不要任何的ros通信在之间）
+    因为是同一个项目 ， 所以 上面获取的2个应该拿去的R1 kfs 可以直接通过代码调用的形式获取 ， 将这2个R1 kfs的 2d coord (x, y)
+    通过 3×（5 - y） + x 转化为 kfs_id , 再通过/home/zjy/R1_control/config/r1_graph_config.yaml里的 R1 路径图规划获取 航点 
+    这里的航点其实是 一个个 (dx, dy, dtheta , cmd) ; 目前我希望的大项目可以做到的就是
+    "
+    input :通过串口获取 kfs 分部地图  或者 通过 --test 的模式转换 ， 调用yaml文件里存储的唯一的测试kfs 分布 
+    output: 输出航点列表
+    "
+
+    可以参考的代码:
+     ~/R1_control
+     /home/zjy/roboncon2025_ws/src/yolo_depth_pkg/scripts/path_planner
+

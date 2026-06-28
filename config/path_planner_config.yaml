@@ -1,0 +1,123 @@
+# ===========================
+# 路径规划配置
+# ===========================
+
+# ---------- 红/蓝 高度地图 ----------
+height_maps:
+  blue:
+    rows: 6
+    cols: 3
+    target_point_coord: [0, 0]   # 蓝方目标点
+    data:
+      - [0, 0, 0]   # y=0 (底行)
+      - [1, 2, 1]   # y=1
+      - [2, 3, 2]   # y=2
+      - [1, 2, 3]   # y=3
+      - [2, 1, 2]   # y=4
+      - [0, 0, 0]   # y=5 (顶行)
+  red:
+    rows: 6
+    cols: 3
+    target_point_coord: [2, 0]   # 红方目标点
+    data:
+      - [0, 0, 0]   # y=0 (底行)
+      - [1, 2, 1]   # y=1
+      - [2, 3, 2]   # y=2
+      - [3, 2, 1]   # y=3
+      - [2, 1, 2]   # y=4
+      - [0, 0, 0]   # y=5 (顶行)
+
+# KFS 工作区域
+kfs_region:
+  y_range: [1, 5]          # KFS 可能出现的行 (左闭右开)
+
+# ---------- A* 算法参数 ----------
+a_star:
+  obstacle_val: 4           # 障碍物标记值
+  turn_penalty: 2           # 转向惩罚
+  pickup_front_cost: 1.0    # 面向 R2 抓取代价
+  pickup_side_cost: 2.0     # 侧向 R2 抓取代价
+  extra_r2_penalty: 0.0     # 超出需求数的额外 R2 代价
+  required_r2: 2            # 路径需收集的 R2 数量上限
+  required_r1: 2            # 路径可跨越的 R1 数量上限 (cost=0)
+
+# ---------- KFS 网格解析分数 ----------
+kfs_scoring:
+  r2_frac:  0.1             # R2 分数 (小数部分匹配)
+  r1_frac:  0.2             # R1 分数
+  fake_val: 4.0             # Fake/障碍物识别值
+
+# ---------- ROS 节点默认值 ----------
+ros_defaults:
+  start:        [1, 5]      # 默认起点 (x, y)
+  target:       [2, 0]      # 默认终点
+  grid_row_offset: 2        # 3×3 网格 → 地图坐标的 y 偏移
+  r2_already_collected: 0   # 前两行已取 R2 数量
+
+# ---------- 串口通信 ----------
+serial:
+  port: "/dev/ttyUSB0"
+  baudrate: 115200
+  timeout: 1.0
+  fixed_buf_len: 25          # 发送缓冲区固定长度, 不足补末位字节
+  frame_header: 0x66         # 帧头 (十六进制)
+  frame_tail:   0x99         # 帧尾 (十六进制)
+
+# ---------- R1 ID 串口 (发送 KFS ID 给 R1_control) ----------
+r1_serial:
+  port: "/dev/ttyR1"
+  baudrate: 115200
+  timeout: 1.0
+  frame_header: 0x5A         # 帧头 — 与 R1 MapSecReceive 一致
+  frame_tail:   0xA5         # 帧尾
+  frame_len: 4               # 帧长度 (header + id1 + id2 + tail)
+
+# ---------- 朝向初始化 ----------
+orientation:
+  init_angle: 0.0
+  init_is_clockwise: 1      # -1 表示顺时针为正
+
+# ---------- A* 网格 (x, y) → R1 ID 映射 ----------
+# path_planner 根据 A* 规划结果中收集的 R2 KFS 位置, 查此表得到 R1 ID
+kfs_id_map:
+  blue:
+    # cell_id = 3*(5-y) + x  →  R1 ID  (与 r1_graph_config.yaml id_to_coord 对应)
+    3:  3       # (0,4) → (3.80, 5.40) h≈2
+    4:  4       # (1,4) → (5.00, 5.40) h≈3
+    6:  6       # (0,3) → (2.60, 3.00) h≈1
+    8:  8      # (2,3) → (8.60, 3.00) h≈2
+    9:  9       # (0,2) → (6.20, 0.60) h≈2
+    10: 10      # (1,2) → (7.40, 5.40) h≈1
+    11: 11      # (2,2) → (6.20, 5.40) h≈2
+    12: 12       # (0,1) → (3.80, 0.60) h≈2
+    13: 13       # (1,1) → (5.00, 0.60) h≈1
+    14: 14      # (2,1) → (7.40, 0.60) h≈1
+  red:
+    # cell_id = 3*(5-y) + x  →  R1 ID  (与 r1_graph_config.yaml id_to_coord 对应)
+    3:  3       # (0,4)
+    4:  4       # (1,4)
+    6:  6       # (0,3)
+    8:  8       # (2,3)
+    9:  9       # (0,2)
+    10: 10      # (1,2)
+    11: 11      # (2,2)
+    12: 12      # (0,1)
+    13: 13      # (1,1)
+    14: 14      # (2,1)
+
+# ---------- 测试预设场景 ----------
+test_scenes:
+  1:
+    side:   red
+    start:  [1, 5]
+    target: [2, 0]
+    fake:   [0, 1]
+    r1: [[0, 3], [2, 3], [2, 1]]
+    r2: [[0, 4], [1, 3], [1, 1], [0, 2]]
+  2:
+    side:   blue
+    start:  [1, 5]
+    target: [0, 0]
+    fake:   [0, 3]
+    r1: [[2, 1], [0, 2], [2, 4]]
+    r2: [[1, 1], [1, 3], [2, 3], [1, 4]]

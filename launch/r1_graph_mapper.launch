@@ -1,0 +1,3 @@
+<launch>
+  <node name="r1_graph_mapper" pkg="r1_control" type="r1_graph_mapper.py" output="screen" />
+</launch>

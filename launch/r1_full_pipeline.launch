@@ -1,0 +1,4 @@
+<launch>
+  <!-- R1 Control: graph plan → chassis serial -->
+  <node name="r1_polyline_planner" pkg="r1_control" type="r1_polyline_planner.py" output="screen" />
+</launch>

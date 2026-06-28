@@ -1,0 +1,194 @@
+# Active scenario: "red" or "blue" (env R1_SCENARIO 优先)
+scenario: "red"
+
+# Pose / angle thresholds
+thresholds:
+  dist_thre: 0.03
+  angle_thre: 0.06
+  hold_duration: 1.0   # 阈值持续满足时间 (s), 判定航点到达
+
+# Serial port
+serial:
+  port: "/dev/ttyUSB0"
+  baud_rate: 115200
+  timeout: 1.0
+  send_bytes: 18
+  send_header: 0x0CAA
+  send_tail: 0xAC0A
+  receive_bytes: 3
+  receive_header: 0x5a
+  receive_tail: 0xa5
+
+# Reconnection
+reconnect:
+  base_delay: 5.0
+  max_delay: 5.0
+
+# Waypoint execution
+waypoint_timeout: 10.0
+
+# 底盘串口 (waypoint 执行用)
+chassis_serial:
+  port: "/dev/ttyCHASSIS"
+  baud_rate: 115200
+  timeout: 1.0
+  send_bytes: 17
+  send_header: 0x0CAA
+  send_tail: 0xAC0A
+  receive_bytes: 3
+  receive_header: 0x5a
+  receive_tail: 0xa5
+  reconnect_base_delay: 0.5
+  reconnect_max_delay: 3.0
+
+# LiDAR → 车体中心偏置 (odom 变换用)
+offsets:
+  imu: [0.011, -0.02329, 0.04412]
+  lidar_x: 0.28
+  lidar_y: -0.04542
+
+# /R1_grap_pos confirmation count
+n_confirm: 3
+
+# 90° turn penalty (meters, added to edge cost)
+turn_90_penalty: 2.0
+
+# Path interpolation resolution (visualization only)
+path_interp_res: 0.1
+
+# Path publish rate (Hz)
+path_pub_rate: 2.0
+
+# TGT arrival serial handshake
+tgt_serial:
+  port: "/dev/ttyUSB1"
+  baud_rate: 115200
+  timeout: 1.0
+  send_header: 0x0CAA
+  send_tail: 0xAC0A
+  tgt1_cmd: 0x31
+  tgt2_cmd: 0x32
+  receive_header: 0x5A
+  receive_tail: 0xA5
+  receive_ok: 0x01
+  receive_bytes: 3
+  reconnect_base_delay: 5.0
+  reconnect_max_delay: 5.0
+
+# ============================================================
+# Red scenario
+# ============================================================
+
+#   x -> 向右为正  y -> 向上为正
+red:
+  zero_point:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    yaw: 0.0
+
+  relative_positions:
+  #      x   y   z
+    k1: [-5.40, 8.60, 0.0]
+    k2: [-5.40, 2.60, 0.0]
+    k3: [-0.60, 2.60, 0.0]
+    k4: [-0.60, 8.60, 0.0]
+
+  # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
+  id_to_coord:
+  #    x    y   height
+    3: [-5.40, 3.80, 2.0]
+    4: [-3.00, 2.60, 1.0]
+    5: [-0.60, 3.80, 2.0]
+    6: [-5.40, 5.00, 3.0]
+    8: [-0.60, 5.00, 1.0]
+    9: [-5.40, 6.20, 2.0]
+    11: [-0.60, 6.20, 2.0]
+    12: [-5.40, 7.40, 1.0]
+    13: [-3.00, 8.60, 2.0]
+    14: [-0.60, 7.40, 1.0]
+
+  # 图规划起止 K 节点
+  start_k: "k3"
+  end_k: "k4"
+
+  # 旋转计算参数: dtheta = (target_theta - ref_yaw) * dir_correct
+  ref_yaw: 0.0       # 参考零朝向 (rad), 0=+y 轴（右）
+  dir_correct: 1         # 旋转方向修正, 1 或 -1
+
+  # 起始 K 节点的初始朝向 (rad)
+  start_yaw: （0.0 - ref_yaw）* dir_correct
+  # 末尾 K 节点的最终朝向 (rad)
+  target_end_yaw: (0.0 - ref_yaw) * dir_correct
+
+  # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
+  tgt_facing:
+    3: ref_yaw                              # +y (右)
+    4: ref_yaw + math.pi/2 * dir_correct    # +x (上)
+    5: ref_yaw + math.pi * dir_correct      # -y (左)
+    6: ref_yaw                              # +y
+    8: ref_yaw + math.pi * dir_correct      # -y
+    9: ref_yaw                              # +y
+    11: ref_yaw + math.pi * dir_correct     # -y
+    12: ref_yaw                             # +y
+    13: ref_yaw - math.pi/2 * dir_correct   # -x (下)
+    14: ref_yaw + math.pi * dir_correct     # -y
+
+# ============================================================
+# Blue scenario
+# ============================================================
+blue:
+  zero_point:
+    x: 0.0
+    y: 0.0
+    z: 0.0
+    yaw: 0.0
+
+  relative_positions:
+  #  x   y   z
+    k1: [0.60, 8.60, 0.0]
+    k2: [0.60, 2.60, 0.0]
+    k3: [5.40, 2.60, 0.0]
+    k4: [5.40, 8.60, 0.0]
+
+  # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
+  id_to_coord:
+  #  x   y   height
+    3: [0.60, 3.80, 2.0]
+    4: [3.00, 2.60, 1.0]
+    5: [5.40, 3.80, 2.0]
+    6: [0.60, 5.00, 1.0]
+    8: [5.40, 5.00, 3.0]
+    9: [0.60, 6.20, 2.0]
+    11: [5.40, 6.20, 2.0]
+    12: [0.60, 7.40, 1.0]
+    13: [3.00, 8.60, 2.0]
+    14: [5.40, 7.40, 1.0]
+
+  # 图规划起止 K 节点
+  start_k: "k2"
+  end_k: "k1"
+
+  # 旋转计算参数: dtheta = (target_theta - ref_yaw) * dir_correct
+
+  # x轴向右为正 , y轴向上为正
+  ref_yaw: 0.0       # 参考零朝向 (rad), 0=+y 轴
+  dir_correct: 1         # 旋转方向修正, 1 或 -1   (1 代表逆时针为正)
+
+  # 起始 K 节点的初始朝向 (rad)
+  start_yaw: （0.0 - ref_yaw）* dir_correct
+  # 末尾 K 节点的最终朝向 (rad)
+  target_end_yaw: (0.0 - ref_yaw) * dir_correct
+
+  # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
+  tgt_facing:
+    3: ref_yaw                              # +y (右)
+    4: ref_yaw + math.pi/2 * dir_correct    # +x (上)
+    5: ref_yaw + math.pi * dir_correct      # -y (左)
+    6: ref_yaw                              # +y
+    8: ref_yaw + math.pi * dir_correct      # -y
+    9: ref_yaw                              # +y
+    11: ref_yaw + math.pi * dir_correct     # -y
+    12: ref_yaw                             # +y
+    13: ref_yaw - math.pi/2 * dir_correct   # -x (下)
+    14: ref_yaw + math.pi * dir_correct     # -y
