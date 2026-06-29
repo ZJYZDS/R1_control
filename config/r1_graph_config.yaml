@@ -41,8 +41,8 @@ chassis_serial:
 # LiDAR → 车体中心偏置 (odom 变换用)
 offsets:
   imu: [0.011, -0.02329, 0.04412]
-  lidar_x: 0.28
-  lidar_y: -0.04542
+  lidar_x:  -0.265
+  lidar_y: 0.0504
 
 # /R1_grap_pos confirmation count
 n_confirm: 3

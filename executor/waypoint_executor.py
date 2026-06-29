@@ -149,7 +149,7 @@ class WaypointExecutor:
         self.current_wp_name = self.wp_meta[0]["name"]
         self.current_wp_height = self.wp_meta[0].get("height")
         self.waypoint_index = 1
-        self.motion_phase = PHASE_ROTATE
+        self.motion_phase = PHASE_TRANSLATE
         self.hold_start = None
         self.waypoint_start_time = time.time()
         self.active = True
@@ -215,6 +215,7 @@ class WaypointExecutor:
                 if self.motion_phase == PHASE_ROTATE:
                     dx_cm = 0.0
                     dy_cm = 0.0
+                    dtheta = (tar_theta - cur_yaw + math.pi) % (2 * math.pi) - math.pi
                 else:
                     dx_w = tar_x - cur_x
                     dy_w = tar_y - cur_y
@@ -222,7 +223,7 @@ class WaypointExecutor:
                     sin_yaw = math.sin(cur_yaw)
                     dx_cm = (dx_w * cos_yaw + dy_w * sin_yaw) * 100.0
                     dy_cm = (-dx_w * sin_yaw + dy_w * cos_yaw) * 100.0
-                dtheta = (tar_theta + 2 * math.pi) % (2 * math.pi)
+                    dtheta = 0.0
 
                 # Format: header(1B) + cmd(1B) + 3 floats(12B LE) + tail(1B)
                 self.chassis_data[0] = c.chassis_send_header
@@ -280,11 +281,19 @@ class WaypointExecutor:
                       f"[{phase_str}] err_d={dist_err:.4f} err_a={angle_err:.4f}")
 
         # ── 两阶段 ──
+        # 首个航点: TRANSLATE → ROTATE → advance
+        # 后续航点: ROTATE → TRANSLATE → advance
         if self.motion_phase == PHASE_ROTATE:
             if angle_err < c.angle_thre:
-                rospy.loginfo("旋转到位 → 平移阶段")
-                self.motion_phase = PHASE_TRANSLATE
-                self.hold_start = None
+                if self.waypoint_index == 1:
+                    rospy.loginfo("旋转到位 → 首个航点完成")
+                    self.hold_start = None
+                    self._advance()
+                    return
+                else:
+                    rospy.loginfo("旋转到位 → 平移阶段")
+                    self.motion_phase = PHASE_TRANSLATE
+                    self.hold_start = None
             else:
                 self.hold_start = None
         else:
@@ -292,10 +301,15 @@ class WaypointExecutor:
                 if self.hold_start is None:
                     self.hold_start = time.time()
                 elif time.time() - self.hold_start >= c.hold_duration:
-                    rospy.loginfo(f"航点到达: #{self.waypoint_index - 1} {self.current_wp_name}")
-                    self.hold_start = None
-                    self._advance()
-                    return
+                    if self.waypoint_index == 1:
+                        rospy.loginfo("平移到位 → 旋转阶段")
+                        self.motion_phase = PHASE_ROTATE
+                        self.hold_start = None
+                    else:
+                        rospy.loginfo(f"航点到达: #{self.waypoint_index - 1} {self.current_wp_name}")
+                        self.hold_start = None
+                        self._advance()
+                        return
             else:
                 self.hold_start = None
 
