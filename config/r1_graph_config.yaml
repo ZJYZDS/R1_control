@@ -38,12 +38,6 @@ chassis_serial:
   reconnect_base_delay: 0.5
   reconnect_max_delay: 3.0
 
-# LiDAR → 车体中心偏置 (odom 变换用)
-offsets:
-  imu: [0.011, -0.02329, 0.04412]
-  lidar_x:  -0.265
-  lidar_y: 0.0504
-
 # /R1_grap_pos confirmation count
 n_confirm: 3
 
@@ -61,10 +55,16 @@ path_pub_rate: 2.0
 # ============================================================
 
 #   x -> 向右为正  y -> 向上为正
+# lidar <-> zero_point x: -0.085
+# lidar <-> zero_point y: +0.265
+
+# center <-> lidar x: -0.265
+# center <-> lidar y: -0.050
+
 red:
   zero_point:
-    x: -0.085
-    y: 0.265
+    x: -0.35
+    y: 0.215
     z: 0.0
     yaw: 0.0
 

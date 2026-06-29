@@ -250,19 +250,9 @@ class WaypointExecutor:
             [orientation.x, orientation.y, orientation.z, orientation.w])
 
         c = self.cfg
-        odx = c.offset_imu[0]
-        ody = c.offset_imu[1]
 
-        cx = (position.x
-              - c.lidar_xoffset * math.cos(yaw)
-              + c.lidar_yoffset * math.sin(yaw)
-              - odx * math.cos(yaw) + ody * math.sin(yaw)
-              + c.zero_point["x"])
-        cy = (position.y
-              - c.lidar_xoffset * math.sin(yaw)
-              - c.lidar_yoffset * math.cos(yaw)
-              - odx * math.sin(yaw) - ody * math.cos(yaw)
-              + c.zero_point["y"])
+        cx = position.x + c.zero_point["x"]
+        cy = position.y + c.zero_point["y"]
 
         self.current_absolute = [cx, cy, 0.0]
         self.current_yaw = yaw
@@ -274,8 +264,8 @@ class WaypointExecutor:
         dist_err = math.hypot(tar_x - cx, tar_y - cy)
 
         phase_str = "ROT" if self.motion_phase == PHASE_ROTATE else "TRANS"
-        rospy.loginfo(f"odom: ({cx:.4f},{cy:.4f},{yaw:.4f}) "
-                      f"→ ({tar_x:.4f},{tar_y:.4f},{tar_theta:.4f}) "
+        rospy.loginfo(f"[{self.current_wp_name}] target=({tar_x:.4f},{tar_y:.4f},{tar_theta:.4f}) "
+                      f"odom=({cx:.4f},{cy:.4f},{yaw:.4f}) "
                       f"[{phase_str}] err_d={dist_err:.4f} err_a={angle_err:.4f}")
 
         # ── 两阶段 ──
