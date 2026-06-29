@@ -64,7 +64,7 @@ path_pub_rate: 2.0
 red:
   zero_point:
     x: -0.35
-    y: 0.215
+    y: 0.315
     z: 0.0
     yaw: 0.0
 
