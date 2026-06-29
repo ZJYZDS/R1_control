@@ -128,27 +128,9 @@ class AppConfig:
         self.id_to_coord = self._transform_id_coords()
 
     def _transform_coords(self):
-        """将世界坐标系下的 config 坐标转换到 fast-livo init 坐标系.
-
-        config 中的 relative_positions / id_to_coord 是相对于世界坐标系零点的坐标.
-        zero_point 是 fast-livo 上电时刻在世界坐标系下的位置.
-        odometry (/aft_mapped_to_init) 以 fast-livo 上电位置为原点.
-        因此: init_frame_coord = world_coord - zero_point
-        """
-        zp = self.zero_point
-        yaw = zp.get("yaw", 0.0)
-        cos_yaw = math.cos(yaw)
-        sin_yaw = math.sin(yaw)
-
+        """航点坐标即为世界坐标, 不做变换 (zero_point 偏置在 executor 端实时叠加到 odometry 上)."""
         def _transform(local_x, local_y, local_z):
-            # 世界坐标 → 先平移到 fast-livo init 原点
-            dx = local_x - zp["x"]
-            dy = local_y - zp["y"]
-            # 若 init 帧与世界帧有旋转, 反向旋转
-            gx = dx * cos_yaw + dy * sin_yaw
-            gy = -dx * sin_yaw + dy * cos_yaw
-            gz = local_z - zp["z"]
-            return [gx, gy, gz]
+            return [local_x, local_y, local_z]
 
         coords = [_transform(0.0, 0.0, 0.0)]  # origin
         for key in ["k1", "k2", "k3", "k4"]:
@@ -157,19 +139,9 @@ class AppConfig:
         return coords
 
     def _transform_id_coords(self):
-        """对 id_to_coord 中所有 TGT 坐标做 zero_point 变换（世界→init帧）."""
-        zp = self.zero_point
-        yaw = zp.get("yaw", 0.0)
-        cos_yaw = math.cos(yaw)
-        sin_yaw = math.sin(yaw)
-
+        """TGT 坐标即为世界坐标, 不做变换."""
         def _transform(local_x, local_y, local_z):
-            dx = local_x - zp["x"]
-            dy = local_y - zp["y"]
-            gx = dx * cos_yaw + dy * sin_yaw
-            gy = -dx * sin_yaw + dy * cos_yaw
-            gz = local_z - zp["z"]
-            return [gx, gy, gz]
+            return [local_x, local_y, local_z]
 
         result = {}
         for k, v in self.id_to_coord.items():

@@ -191,7 +191,7 @@ class WaypointExecutor:
         return False
 
     def _chassis_send(self):
-        """两阶段串口发送: ROTATE 只发 dtheta, TRANSLATE 只发 (dx, dy)."""
+        """两阶段串口发送: ROTATE 只发 dtheta, TRANSLATE 发 (dx, dy, dtheta)."""
         if not self.active or self.target is None:
             return
         if self.chassis_fault:
@@ -217,13 +217,9 @@ class WaypointExecutor:
                     dy_cm = 0.0
                     dtheta = (tar_theta - cur_yaw + math.pi) % (2 * math.pi) - math.pi
                 else:
-                    dx_w = tar_x - cur_x
-                    dy_w = tar_y - cur_y
-                    cos_yaw = math.cos(cur_yaw)
-                    sin_yaw = math.sin(cur_yaw)
-                    dx_cm = (dx_w * cos_yaw + dy_w * sin_yaw) * 100.0
-                    dy_cm = (-dx_w * sin_yaw + dy_w * cos_yaw) * 100.0
-                    dtheta = 0.0
+                    dx_cm = (tar_x - cur_x) * 100.0
+                    dy_cm = (tar_y - cur_y) * 100.0
+                    dtheta = (tar_theta - cur_yaw + math.pi) % (2 * math.pi) - math.pi
 
                 # Format: header(1B) + cmd(1B) + 3 floats(12B LE) + tail(1B)
                 self.chassis_data[0] = c.chassis_send_header
@@ -260,11 +256,13 @@ class WaypointExecutor:
         cx = (position.x
               - c.lidar_xoffset * math.cos(yaw)
               + c.lidar_yoffset * math.sin(yaw)
-              - odx * math.cos(yaw) + ody * math.sin(yaw))
+              - odx * math.cos(yaw) + ody * math.sin(yaw)
+              + c.zero_point["x"])
         cy = (position.y
               - c.lidar_xoffset * math.sin(yaw)
               - c.lidar_yoffset * math.cos(yaw)
-              - odx * math.sin(yaw) - ody * math.cos(yaw))
+              - odx * math.sin(yaw) - ody * math.cos(yaw)
+              + c.zero_point["y"])
 
         self.current_absolute = [cx, cy, 0.0]
         self.current_yaw = yaw
