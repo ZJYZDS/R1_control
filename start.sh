@@ -64,8 +64,8 @@ if [ "$MODE" = "test" ]; then
         exit 1
     fi
     echo "[start.sh] 启动 waypoint executor (test scene ${TEST_SCENE})..."
-    python3 executor/waypoint_executor.py --test-scene="$TEST_SCENE" --side="$SIDE"
+    python3 executor/waypoint_executor.py --test-scene="$TEST_SCENE" --"$SIDE"
 else
     echo "[start.sh] 启动 waypoint executor (KFS serial)..."
-    python3 executor/waypoint_executor.py --side="$SIDE"
+    python3 executor/waypoint_executor.py --"$SIDE"
 fi
