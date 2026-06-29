@@ -83,9 +83,9 @@ class AppConfig:
         self.chassis_port = ch.get("port", "/dev/ttyCHASSIS")
         self.chassis_baud = ch.get("baud_rate", 115200)
         self.chassis_timeout = ch.get("timeout", 1.0)
-        self.chassis_send_bytes = ch.get("send_bytes", 17)
-        self.chassis_send_header = ch.get("send_header", 0x0CAA)
-        self.chassis_send_tail = ch.get("send_tail", 0xAC0A)
+        self.chassis_send_bytes = ch.get("send_bytes", 15)
+        self.chassis_send_header = ch.get("send_header", 0x55)
+        self.chassis_send_tail = ch.get("send_tail", 0xAA)
         self.chassis_reconnect_base = ch.get("reconnect_base_delay", 0.5)
         self.chassis_reconnect_max = ch.get("reconnect_max_delay", 3.0)
 

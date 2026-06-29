@@ -25,14 +25,14 @@ reconnect:
   max_delay: 5.0
 
 # Waypoint execution
-waypoint_timeout: 10.0
+waypoint_timeout: 1000.0
 
 # 底盘串口 (waypoint 执行用)
 chassis_serial:
   port: "/dev/ttyACM0"
   baud_rate: 115200
   timeout: 1.0
-  send_bytes: 17
+  send_bytes: 15
   send_header: 0x55
   send_tail: 0xAA
   reconnect_base_delay: 0.5

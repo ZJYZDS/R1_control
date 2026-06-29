@@ -222,18 +222,19 @@ class WaypointExecutor:
                     dy_cm = (tar_y - cur_y) * 100.0
                     dtheta = 0.0
 
-                self.chassis_data[0:2] = struct.pack('>H', c.chassis_send_header)
-                # cmd: 0x00 行驶中; 到达 TGT 后根据 height 发 0x01/0x02/0x03
+                # Format: header(1B) + cmd(1B) + 3 floats(12B LE) + tail(1B)
+                self.chassis_data[0] = c.chassis_send_header
                 if self.hold_start is not None and self.motion_phase == PHASE_TRANSLATE and self.current_wp_name.startswith("TGT"):
                     h = self.current_wp_height
                     cmd = {1: 0x01, 2: 0x02, 3: 0x03}.get(h, 0x00)
                 else:
                     cmd = 0x00
-                self.chassis_data[2] = cmd
-                self.chassis_data[-2:] = struct.pack('>H', c.chassis_send_tail)
+                self.chassis_data[1] = cmd
                 pack = struct.pack('<3f', dx_cm, dy_cm, dtheta)
-                self.chassis_data[3:c.chassis_send_bytes - 2] = pack
+                self.chassis_data[2:c.chassis_send_bytes - 1] = pack
+                self.chassis_data[c.chassis_send_bytes - 1] = c.chassis_send_tail
                 self.chassis_serial.write(self.chassis_data)
+                rospy.loginfo(f"dx={dx_cm:.1f}, dy={dy_cm:.1f}, dtheta={dtheta:.3f}, cmd=0x{cmd:02X}")
             except serial.SerialException as e:
                 rospy.logerr(f"底盘发送失败: {e}")
                 self.chassis_fault = True
