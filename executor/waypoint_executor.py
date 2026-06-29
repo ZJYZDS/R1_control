@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""R1 航点执行节点 — 集成 pipeline + 底盘控制 + TGT 握手.
+"""R1 航点执行节点 — 集成 pipeline + 底盘控制.
 
 用法:
-  rosrun r1_control waypoint_executor.py [--side blue|red]
+  rosrun r1_control waypoint_executor.py [--red|--blue] [--test-scene=N]
 
 从 r1_graph_config.yaml 加载全部配置, 直接调用 pipeline 生成航点,
 无需中间 JSON 文件.
@@ -29,24 +29,14 @@ from pipeline.kfs_reader import KfsSerialReader
 from pipeline.commands_generator import generate_commands, commands_to_binary, fmt_hex
 from pipeline.orchestrator import (process_grid, route_to_absolute_waypoints,
                                    DEFAULT_REQUIRED_R2, DEFAULT_REQUIRED_R1)
-from lib.kfs_id_map import load_kfs_id_map
 
-# ========== TGT 握手帧格式 (固定协议) ==========
-
-TGT_SEND_HEADER = 0x0A
-TGT_SEND_TAIL = 0x0B
-TGT_RESP_HEADER = 0xA1
-TGT_RESP_STATUS = 0x01
-TGT_RESP_TAIL = 0xB1
-TGT_HEIGHT_MAP = {1: 0x01, 2: 0x02, 3: 0x03}
-TGT_TIMEOUT = 5.0
 
 PHASE_ROTATE = 0
 PHASE_TRANSLATE = 1
 
 
 class WaypointExecutor:
-    """KFS → pipeline → 绝对航点 → 两阶段底盘控制 → TGT 握手."""
+    """KFS → pipeline → 绝对航点 → 两阶段底盘控制."""
 
     def __init__(self, side="blue", test_scene=None):
         self.cfg = get_config(side)
@@ -70,33 +60,16 @@ class WaypointExecutor:
         self.waypoint_start_time = None
         self.active = False  # 是否有航点在执行
 
-        # TGT
-        self.tgt_serial = None
-        self.tgt_fault = False
-        self.tgt_waiting = False
-        self.tgt_wait_start = 0.0
-        self.tgt_buf = bytearray()
-
         # ── 底盘串口 ──
-        self.cmd = 0x11
         self.chassis_serial = None
         self.chassis_fault = False
         self.chassis_lock = threading.Lock()
         self.chassis_data = bytearray(self.cfg.chassis_send_bytes)
-        self.chassis_buf = bytearray()
         self._chassis_init()
-
-        # TGT 串口
-        self._tgt_init()
 
         # ── ROS ──
         self.pub_fault = rospy.Publisher("/area12/fault", String, queue_size=10)
         rospy.Subscriber("/aft_mapped_to_init", Odometry, self._on_odom)
-
-        self._rx_thread = threading.Thread(target=self._chassis_rx_loop, daemon=True)
-        self._rx_thread.start()
-        self._tgt_thread = threading.Thread(target=self._tgt_rx_loop, daemon=True)
-        self._tgt_thread.start()
 
         # ── 数据源: test scene 或 KFS 串口 ──
         if self.test_scene is not None:
@@ -219,7 +192,7 @@ class WaypointExecutor:
 
     def _chassis_send(self):
         """两阶段串口发送: ROTATE 只发 dtheta, TRANSLATE 只发 (dx, dy)."""
-        if self.tgt_waiting or not self.active or self.target is None:
+        if not self.active or self.target is None:
             return
         if self.chassis_fault:
             self._chassis_reconnect()
@@ -250,7 +223,13 @@ class WaypointExecutor:
                     dtheta = 0.0
 
                 self.chassis_data[0:2] = struct.pack('>H', c.chassis_send_header)
-                self.chassis_data[2] = self.cmd
+                # cmd: 0x00 行驶中; 到达 TGT 后根据 height 发 0x01/0x02/0x03
+                if self.hold_start is not None and self.motion_phase == PHASE_TRANSLATE and self.current_wp_name.startswith("TGT"):
+                    h = self.current_wp_height
+                    cmd = {1: 0x01, 2: 0x02, 3: 0x03}.get(h, 0x00)
+                else:
+                    cmd = 0x00
+                self.chassis_data[2] = cmd
                 self.chassis_data[-2:] = struct.pack('>H', c.chassis_send_tail)
                 pack = struct.pack('<3f', dx_cm, dy_cm, dtheta)
                 self.chassis_data[3:c.chassis_send_bytes - 2] = pack
@@ -259,119 +238,10 @@ class WaypointExecutor:
                 rospy.logerr(f"底盘发送失败: {e}")
                 self.chassis_fault = True
 
-    def _chassis_rx_loop(self):
-        c = self.cfg
-        HDR = c.chassis_receive_header
-        TAIL = c.chassis_receive_tail
-        FLEN = c.chassis_receive_bytes
-        while not rospy.is_shutdown():
-            if self.chassis_fault or not self.chassis_serial or not self.chassis_serial.is_open:
-                time.sleep(0.5)
-                continue
-            try:
-                w = self.chassis_serial.in_waiting
-                if w > 0:
-                    self.chassis_buf.extend(self.chassis_serial.read(w))
-                buf = self.chassis_buf
-                while len(buf) >= FLEN:
-                    pos = buf.find(HDR)
-                    if pos < 0:
-                        buf.clear()
-                        break
-                    if pos > 0:
-                        del buf[:pos]
-                    if len(buf) < FLEN:
-                        break
-                    if buf[FLEN - 1] == TAIL:
-                        del buf[:FLEN]
-                    else:
-                        del buf[0]
-                if len(buf) > 1024:
-                    buf.clear()
-            except serial.SerialException:
-                self.chassis_fault = True
-            time.sleep(0.01)
-
-    # ==================== TGT 串口 ====================
-
-    def _tgt_init(self):
-        c = self.cfg
-        try:
-            self.tgt_serial = serial.Serial(c.tgt_serial_port, c.tgt_baud_rate, timeout=1.0)
-            self.tgt_fault = False
-            rospy.loginfo(f"[Executor] TGT 串口 {c.tgt_serial_port} 已打开")
-        except serial.SerialException as e:
-            rospy.logerr(f"[Executor] TGT 串口失败: {e}")
-            self.tgt_fault = True
-
-    def _tgt_send(self):
-        if self.tgt_fault or not self.tgt_serial or not self.tgt_serial.is_open:
-            rospy.logerr("[Executor] TGT 串口不可用")
-            self._advance()
-            return
-        h = self.current_wp_height
-        if h is None:
-            rospy.logwarn("[Executor] TGT 无 height, 跳过握手")
-            self._advance()
-            return
-        hb = TGT_HEIGHT_MAP.get(h, 0x01)
-        frame = bytes([TGT_SEND_HEADER, hb, TGT_SEND_TAIL])
-        try:
-            self.tgt_serial.write(frame)
-            self.tgt_waiting = True
-            self.tgt_wait_start = time.time()
-            rospy.loginfo(f"[Executor] TGT 握手: height={h} → "
-                          f"[0x{TGT_SEND_HEADER:02X} 0x{hb:02X} 0x{TGT_SEND_TAIL:02X}]")
-        except serial.SerialException:
-            self.tgt_fault = True
-            self._advance()
-
-    def _tgt_rx_loop(self):
-        while not rospy.is_shutdown():
-            if not self.tgt_waiting:
-                time.sleep(0.05)
-                continue
-            if self.tgt_fault or not self.tgt_serial or not self.tgt_serial.is_open:
-                time.sleep(0.5)
-                continue
-            if time.time() - self.tgt_wait_start > TGT_TIMEOUT:
-                rospy.logerr(f"[Executor] TGT 握手超时 ({TGT_TIMEOUT}s)")
-                self.tgt_waiting = False
-                self._advance()
-                continue
-            try:
-                w = self.tgt_serial.in_waiting
-                if w > 0:
-                    self.tgt_buf.extend(self.tgt_serial.read(w))
-                buf = self.tgt_buf
-                RESP = bytes([TGT_RESP_HEADER, TGT_RESP_STATUS, TGT_RESP_TAIL])
-                while len(buf) >= 3:
-                    pos = buf.find(RESP)
-                    if pos < 0:
-                        pos = buf.find(TGT_RESP_HEADER)
-                        if pos < 0:
-                            buf.clear()
-                            break
-                        del buf[:pos]
-                        if len(buf) < 3:
-                            break
-                    if buf[0] == TGT_RESP_HEADER and buf[2] == TGT_RESP_TAIL:
-                        rospy.loginfo("[Executor] TGT 握手回应收到")
-                        buf.clear()
-                        self.tgt_waiting = False
-                        self._advance()
-                    else:
-                        del buf[0]
-                if len(buf) > 256:
-                    buf.clear()
-            except serial.SerialException:
-                self.tgt_fault = True
-            time.sleep(0.01)
-
     # ==================== odom → 控制 ====================
 
     def _on_odom(self, msg: Odometry):
-        if self.tgt_waiting or not self.active or self.target is None:
+        if not self.active or self.target is None:
             return
 
         position = msg.pose.pose.position
@@ -386,11 +256,11 @@ class WaypointExecutor:
         cx = (position.x
               - c.lidar_xoffset * math.cos(yaw)
               + c.lidar_yoffset * math.sin(yaw)
-              + odx * math.cos(yaw) - ody * math.sin(yaw))
+              - odx * math.cos(yaw) + ody * math.sin(yaw))
         cy = (position.y
               - c.lidar_xoffset * math.sin(yaw)
               - c.lidar_yoffset * math.cos(yaw)
-              + odx * math.sin(yaw) + ody * math.cos(yaw))
+              - odx * math.sin(yaw) - ody * math.cos(yaw))
 
         self.current_absolute = [cx, cy, 0.0]
         self.current_yaw = yaw
@@ -421,10 +291,7 @@ class WaypointExecutor:
                 elif time.time() - self.hold_start >= c.hold_duration:
                     rospy.loginfo(f"航点到达: #{self.waypoint_index - 1} {self.current_wp_name}")
                     self.hold_start = None
-                    if self.current_wp_name.startswith("TGT"):
-                        self._tgt_send()
-                    else:
-                        self._advance()
+                    self._advance()
                     return
             else:
                 self.hold_start = None
@@ -468,8 +335,6 @@ class WaypointExecutor:
             self._kfs_reader.stop()
         if self.chassis_serial and self.chassis_serial.is_open:
             self.chassis_serial.close()
-        if self.tgt_serial and self.tgt_serial.is_open:
-            self.tgt_serial.close()
         rospy.loginfo("[Executor] 已清理")
 
 
@@ -478,8 +343,10 @@ if __name__ == '__main__':
     side = "blue"
     test_scene = None
     for a in sys.argv:
-        if a.startswith("--side="):
-            side = a.split("=")[1]
+        if a == "--red":
+            side = "red"
+        elif a == "--blue":
+            side = "blue"
         elif a.startswith("--test-scene="):
             test_scene = int(a.split("=")[1])
     rospy.init_node("waypoint_executor", anonymous=True)

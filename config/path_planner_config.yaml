@@ -63,59 +63,22 @@ serial:
   frame_header: 0x66         # 帧头 (十六进制)
   frame_tail:   0x99         # 帧尾 (十六进制)
 
-# ---------- R1 ID 串口 (发送 KFS ID 给 R1_control) ----------
-r1_serial:
-  port: "/dev/ttyR1"
-  baudrate: 115200
-  timeout: 1.0
-  frame_header: 0x5A         # 帧头 — 与 R1 MapSecReceive 一致
-  frame_tail:   0xA5         # 帧尾
-  frame_len: 4               # 帧长度 (header + id1 + id2 + tail)
-
 # ---------- 朝向初始化 ----------
 orientation:
   init_angle: 0.0
   init_is_clockwise: 1      # -1 表示顺时针为正
 
-# ---------- A* 网格 (x, y) → R1 ID 映射 ----------
-# path_planner 根据 A* 规划结果中收集的 R2 KFS 位置, 查此表得到 R1 ID
-kfs_id_map:
-  blue:
-    # cell_id = 3*(5-y) + x  →  R1 ID  (与 r1_graph_config.yaml id_to_coord 对应)
-    3:  3       # (0,4) → (3.80, 5.40) h≈2
-    4:  4       # (1,4) → (5.00, 5.40) h≈3
-    6:  6       # (0,3) → (2.60, 3.00) h≈1
-    8:  8      # (2,3) → (8.60, 3.00) h≈2
-    9:  9       # (0,2) → (6.20, 0.60) h≈2
-    10: 10      # (1,2) → (7.40, 5.40) h≈1
-    11: 11      # (2,2) → (6.20, 5.40) h≈2
-    12: 12       # (0,1) → (3.80, 0.60) h≈2
-    13: 13       # (1,1) → (5.00, 0.60) h≈1
-    14: 14      # (2,1) → (7.40, 0.60) h≈1
-  red:
-    # cell_id = 3*(5-y) + x  →  R1 ID  (与 r1_graph_config.yaml id_to_coord 对应)
-    3:  3       # (0,4)
-    4:  4       # (1,4)
-    6:  6       # (0,3)
-    8:  8       # (2,3)
-    9:  9       # (0,2)
-    10: 10      # (1,2)
-    11: 11      # (2,2)
-    12: 12      # (0,1)
-    13: 13      # (1,1)
-    14: 14      # (2,1)
-
 # ---------- 测试预设场景 ----------
 test_scenes:
   1:
-    side:   red
+    side: blue
     start:  [1, 5]
-    target: [2, 0]
+    target: [0, 0]
     fake:   [0, 1]
-    r1: [[0, 3], [2, 3], [2, 1]]
+    r1: [[0, 3], [2, 2], [2, 1]]
     r2: [[0, 4], [1, 3], [1, 1], [0, 2]]
   2:
-    side:   blue
+    side: blue
     start:  [1, 5]
     target: [0, 0]
     fake:   [0, 3]

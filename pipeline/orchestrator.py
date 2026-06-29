@@ -14,7 +14,7 @@ from pipeline.astar_planner import astar_plan, select_r1_ids, get_crossed_r1_pos
 from pipeline.graph_planner import GraphMapper, supplement_ids, route_to_waypoints
 from pipeline.kfs_reader import KfsSerialReader
 from pipeline.commands_generator import generate_commands, commands_to_binary, fmt_hex
-from lib.kfs_id_map import load_kfs_id_map
+
 
 
 DEFAULT_WAYPOINTS_FILE = "/tmp/pipeline_waypoints.json"
@@ -43,10 +43,7 @@ def route_to_absolute_waypoints(route, tgt_ids_dict, cfg):
         # ── 计算该节点的目标朝向 (map heading, +y=0) ──
         if name.startswith("TGT"):
             tgt_id = tgt_ids_dict.get(name)
-            if tgt_id is not None and tgt_id in cfg.tgt_facing:
-                heading_rad = cfg.tgt_facing[tgt_id]
-            else:
-                heading_rad = 0.0
+            heading_rad = cfg.get_tgt_facing(tgt_id, coord) if tgt_id is not None else 0.0
         elif i == len(route) - 1:
             # 最后一个节点: 直接用 target_end_yaw (已经是 theta)
             heading_rad = None
@@ -55,11 +52,8 @@ def route_to_absolute_waypoints(route, tgt_ids_dict, cfg):
             nx, ny = float(next_coord[0]), float(next_coord[1])
             if next_name.startswith("TGT"):
                 tgt_id = tgt_ids_dict.get(next_name)
-                if tgt_id is not None and tgt_id in cfg.tgt_facing:
-                    # K→TGT: 朝向用 TGT 的 tgt_facing
-                    heading_rad = cfg.tgt_facing[tgt_id]
-                else:
-                    heading_rad = math.atan2(nx - x, ny - y)
+                # K→TGT: 朝向用 TGT 的 tgt_facing, 根据 TGT 坐标匹配
+                heading_rad = cfg.get_tgt_facing(tgt_id, next_coord) if tgt_id is not None else math.atan2(nx - x, ny - y)
             else:
                 # K→K: 计算两点间方向 (atan2(dx, dy), 0=+y 轴)
                 heading_rad = math.atan2(nx - x, ny - y)
@@ -175,12 +169,10 @@ def process_grid(grid_4x3, side="blue", verbose=True):
     if verbose:
         print(f"\n[Pipeline] 跨越 R1: {crossed_r1}")
 
-    kfs_id_map = load_kfs_id_map(side)
-    r1_ids = select_r1_ids(crossed_r1, r1_positions, kfs_id_map)
+    r1_ids = select_r1_ids(crossed_r1, r1_positions)
 
     if verbose:
         print(f"[Pipeline] 初步 R1 IDs: {r1_ids}")
-        print(f"  KFS ID map (cell_id→kfs_id): {kfs_id_map}")
 
     # ── 5. ID 补充 ──
     mapper = GraphMapper(cfg)
@@ -193,40 +185,52 @@ def process_grid(grid_4x3, side="blue", verbose=True):
     if verbose:
         print(f"[Pipeline] 最终 IDs (补充后): {final_ids}")
 
-    # ── 6. 图规划 ──
-    c1 = mapper.id_to_coord(id1)
-    c2 = mapper.id_to_coord(id2)
-    if c1 is None or c2 is None:
-        return {"error": f"ID→coord failed"}
+    # ── 6. 图规划 (遍历双坐标组合, 选 total_cost 最小) ──
+    coords1 = mapper.id_to_coords(id1)
+    coords2 = mapper.id_to_coords(id2)
+    if not coords1 or not coords2:
+        return {"error": f"ID→coord failed: id1={id1}, id2={id2}"}
 
     tgt_ids_dict = {"TGT1": id1, "TGT2": id2}
-
-    if verbose:
-        print(f"\n[Pipeline] 图规划:")
-        print(f"  TGT1(id={id1})=({c1[0]:.3f},{c1[1]:.3f},{c1[2]:.3f})")
-        print(f"  TGT2(id={id2})=({c2[0]:.3f},{c2[1]:.3f},{c2[2]:.3f})")
-        print(f"  Start: {cfg.start_k}, End: {cfg.end_k}")
-
-    nodes, adj = mapper.build_graph([c1, c2])
     start_idx = cfg.k_index[cfg.start_k] + 1
     end_idx = cfg.k_index[cfg.end_k] + 1
 
-    route = mapper.find_path(nodes, adj, start_idx, end_idx)
-    if not route:
+    best_route = None
+    best_wps = None
+    best_abs_wps = None
+    best_c1 = best_c2 = None
+    best_cost = float('inf')
+
+    for c1 in coords1:
+        for c2 in coords2:
+            nodes, adj = mapper.build_graph([c1, c2])
+            route = mapper.find_path(nodes, adj, start_idx, end_idx)
+            if not route:
+                continue
+            total = sum(np.linalg.norm(route[i][1][:2] - route[i + 1][1][:2])
+                       for i in range(len(route) - 1))
+            if total < best_cost:
+                best_cost = total
+                best_route = route
+                best_c1 = c1
+                best_c2 = c2
+
+    if best_route is None:
         return {"error": "No graph route found"}
 
-    route_nodes = [n for n, _ in route]
-    wps = route_to_waypoints(route, tgt_ids_dict)
-
-    # 生成绝对坐标航点 (zero_point 框架), 保存供 pao.py 读取
-    abs_wps = route_to_absolute_waypoints(route, tgt_ids_dict, cfg)
-    save_waypoints_json(abs_wps)
+    route_nodes = [n for n, _ in best_route]
+    best_wps = route_to_waypoints(best_route, tgt_ids_dict, cfg)
+    best_abs_wps = route_to_absolute_waypoints(best_route, tgt_ids_dict, cfg)
+    save_waypoints_json(best_abs_wps)
 
     if verbose:
-        print(f"\n[Pipeline] 图规划结果:")
+        print(f"\n[Pipeline] 图规划 (best of {len(coords1)*len(coords2)} combos, cost={best_cost:.3f}):")
+        print(f"  TGT1(id={id1})=({best_c1[0]:.3f},{best_c1[1]:.3f},{best_c1[2]:.3f})")
+        print(f"  TGT2(id={id2})=({best_c2[0]:.3f},{best_c2[1]:.3f},{best_c2[2]:.3f})")
+        print(f"  Start: {cfg.start_k}, End: {cfg.end_k}")
         print(f"  Route: {route_nodes}")
-        print(f"  Waypoints ({len(wps)}):")
-        for i, (wp_type, dx, dy, dyaw, name) in enumerate(wps):
+        print(f"  Waypoints ({len(best_wps)}):")
+        for i, (wp_type, dx, dy, dyaw, name) in enumerate(best_wps):
             h = ""
             if name.startswith("TGT"):
                 tgt_id = tgt_ids_dict.get(name)
@@ -236,12 +240,12 @@ def process_grid(grid_4x3, side="blue", verbose=True):
             print(f"    {i}: [{wp_type}] ({dx:+.3f}, {dy:+.3f}, {dyaw:+.3f}) {name}{h}")
 
     return {
-        "waypoints": wps,
-        "absolute_waypoints": abs_wps,
+        "waypoints": best_wps,
+        "absolute_waypoints": best_abs_wps,
         "route_nodes": route_nodes,
         "tgt_coords": {
-            "TGT1": (float(c1[0]), float(c1[1]), float(c1[2])),
-            "TGT2": (float(c2[0]), float(c2[1]), float(c2[2])),
+            "TGT1": (float(best_c1[0]), float(best_c1[1]), float(best_c1[2])),
+            "TGT2": (float(best_c2[0]), float(best_c2[1]), float(best_c2[2])),
         },
         "r1_ids": final_ids,
         "astar_path": path,

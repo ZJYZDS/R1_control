@@ -233,22 +233,18 @@ def _cell_id(x, y):
     return (5 - y) * 3 + x
 
 
-def select_r1_ids(crossed_r1, all_r1, kfs_id_map):
+def select_r1_ids(crossed_r1, all_r1):
     """根据跨越的 R1 位置，选择 2 个 KFS ID.
 
     Args:
         crossed_r1: 实际跨越的 R1 位置列表 [(x,y), ...]
         all_r1:     所有 R1 位置列表 [(x,y), ...]
-        kfs_id_map: cell_id → KFS ID 的映射 {cell_id: kfs_id}
 
     Returns:
-        [id1, id2]: 选中的 2 个 KFS ID
+        [id1, id2]: 选中的 2 个 KFS ID (cell_id 即 KFS ID)
     """
     def _cid(xy):
         return _cell_id(xy[0], xy[1])
-
-    def _kid(xy):
-        return kfs_id_map.get(_cid(xy))
 
     n = len(crossed_r1)
 
@@ -256,12 +252,12 @@ def select_r1_ids(crossed_r1, all_r1, kfs_id_map):
         # 0 个跨越: 在同列或同行中找 >= 2 个 R1
         for col in range(3):
             col_r1 = [xy for xy in all_r1 if xy[0] == col]
-            ids = [_kid(xy) for xy in col_r1 if _kid(xy) is not None]
+            ids = [_cid(xy) for xy in col_r1]
             if len(ids) >= 2:
                 return sorted(ids)[:2]
         for row in range(1, 5):
             row_r1 = [xy for xy in all_r1 if xy[1] == row]
-            ids = [_kid(xy) for xy in row_r1 if _kid(xy) is not None]
+            ids = [_cid(xy) for xy in row_r1]
             if len(ids) >= 2:
                 return sorted(ids)[:2]
         return []
@@ -270,21 +266,21 @@ def select_r1_ids(crossed_r1, all_r1, kfs_id_map):
         # 1 个跨越: 以该 R1 为基准，找同列或同行的另一个
         cx, cy = crossed_r1[0]
         col_r1 = [xy for xy in all_r1 if xy[0] == cx and xy != (cx, cy)]
-        ids = [_kid(xy) for xy in col_r1 if _kid(xy) is not None]
+        ids = [_cid(xy) for xy in col_r1]
         if ids:
-            base_id = _kid((cx, cy))
+            base_id = _cid((cx, cy))
             if base_id:
                 return sorted([base_id, ids[0]])
         row_r1 = [xy for xy in all_r1 if xy[1] == cy and xy != (cx, cy)]
-        ids = [_kid(xy) for xy in row_r1 if _kid(xy) is not None]
+        ids = [_cid(xy) for xy in row_r1]
         if ids:
-            base_id = _kid((cx, cy))
+            base_id = _cid((cx, cy))
             if base_id:
                 return sorted([base_id, ids[0]])
         return []
 
     else:  # n >= 2
-        ids = [_kid(xy) for xy in crossed_r1 if _kid(xy) is not None]
+        ids = [_cid(xy) for xy in crossed_r1]
         return sorted(ids)[:2]
 
 
@@ -350,22 +346,7 @@ def plan_astar_for_grid(grid_4x3, side="blue"):
     # 获取跨越的 R1
     crossed_r1 = get_crossed_r1_positions(path, r1_positions, r1_mask, len(r2_positions))
 
-    # cell_id → KFS ID 映射
-    kfs_id_map = {}
-    for r in range(4):
-        for c in range(3):
-            cell_id = _cell_id(c, r + 1)
-            # 在 id_to_coord 中查找对应此 cell_id 的 KFS ID
-            for kfs_id, coord in cfg.id_to_coord.items():
-                # 简单映射: 使用 grid 位置的 cell_id
-                pass
-            kfs_id_map[cell_id] = None  # 待填充
-
-    # 从 r1_graph/r1_id_sender.py 的 load_kfs_id_map 逻辑填充映射
-    from lib.kfs_id_map import load_kfs_id_map
-    kfs_id_map = load_kfs_id_map(side)
-
-    r1_ids = select_r1_ids(crossed_r1, r1_positions, kfs_id_map)
+    r1_ids = select_r1_ids(crossed_r1, r1_positions)
 
     return {
         "path": path,

@@ -58,7 +58,12 @@ class AppConfig:
         self.target_end_yaw = _eval_num(sc.get("target_end_yaw", 0.0), **angle_ctx)
 
         raw_facing = sc.get("tgt_facing", {})
-        self.tgt_facing = {int(k): _eval_num(v, **angle_ctx) for k, v in raw_facing.items()}
+        self.tgt_facing = {}
+        for k, v in raw_facing.items():
+            if isinstance(v, list):
+                self.tgt_facing[int(k)] = [_eval_num(x, **angle_ctx) for x in v]
+            else:
+                self.tgt_facing[int(k)] = _eval_num(v, **angle_ctx)
 
         # 阈值
         th = self.graph_cfg.get("thresholds", {})
@@ -81,20 +86,8 @@ class AppConfig:
         self.chassis_send_bytes = ch.get("send_bytes", 17)
         self.chassis_send_header = ch.get("send_header", 0x0CAA)
         self.chassis_send_tail = ch.get("send_tail", 0xAC0A)
-        self.chassis_receive_bytes = ch.get("receive_bytes", 3)
-        self.chassis_receive_header = ch.get("receive_header", 0x5A)
-        self.chassis_receive_tail = ch.get("receive_tail", 0xA5)
         self.chassis_reconnect_base = ch.get("reconnect_base_delay", 0.5)
         self.chassis_reconnect_max = ch.get("reconnect_max_delay", 3.0)
-
-        # TGT 串口
-        tgt = self.graph_cfg.get("tgt_serial", {})
-        self.tgt_serial_port = tgt.get("port", "/dev/ttyUSB1")
-        self.tgt_baud_rate = tgt.get("baud_rate", 115200)
-        self.tgt_timeout = tgt.get("timeout", 1.0)
-        self.tgt1_cmd = tgt.get("tgt1_cmd", 0x31)
-        self.tgt2_cmd = tgt.get("tgt2_cmd", 0x32)
-        self.tgt_receive_ok = tgt.get("receive_ok", 0x01)
 
         # 偏置
         off = self.graph_cfg.get("offsets", {})
@@ -126,10 +119,6 @@ class AppConfig:
         hm_side = self.height_maps.get(side, {})
         self.default_target = tuple(hm_side.get("target_point_coord",
                                                 rosd.get("target", [2, 0])))
-
-        # cell_id → KFS ID 映射 (预定义, 非坐标匹配)
-        raw_kfs = self.astar_cfg.get("kfs_id_map", {}).get(side, {})
-        self.kfs_id_map = {int(k): int(v) for k, v in raw_kfs.items()}
 
         # ── K 节点坐标 (经 zero_point 变换) ──
         self.known_coords = self._transform_coords()
@@ -173,6 +162,23 @@ class AppConfig:
 
     def get_id_coord(self, kfs_id):
         return self.id_to_coord.get(int(kfs_id))
+
+    def get_tgt_facing(self, tgt_id, coord=None):
+        """Return facing for a TGT ID. If multi-facing (list), match by coord index."""
+        facing = self.tgt_facing.get(int(tgt_id))
+        if facing is None:
+            return 0.0
+        if not isinstance(facing, list):
+            return facing
+        if coord is None:
+            return facing[0]
+        coords = self.id_to_coord.get(int(tgt_id))
+        if coords is None or not isinstance(coords[0], list):
+            return facing[0]
+        for i, c in enumerate(coords):
+            if abs(c[0] - float(coord[0])) < 0.01 and abs(c[1] - float(coord[1])) < 0.01:
+                return facing[i] if i < len(facing) else facing[0]
+        return facing[0]
 
 
 # 全局实例

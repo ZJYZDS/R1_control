@@ -1,5 +1,5 @@
 # Active scenario: "red" or "blue" (env R1_SCENARIO 优先)
-scenario: "red"
+scenario: "blue"
 
 # Pose / angle thresholds
 thresholds:
@@ -9,7 +9,7 @@ thresholds:
 
 # Serial port
 serial:
-  port: "/dev/ttyUSB0"
+  port: "/dev/ttyACM0"
   baud_rate: 115200
   timeout: 1.0
   send_bytes: 18
@@ -29,15 +29,12 @@ waypoint_timeout: 10.0
 
 # 底盘串口 (waypoint 执行用)
 chassis_serial:
-  port: "/dev/ttyCHASSIS"
+  port: "/dev/ttyACM0"
   baud_rate: 115200
   timeout: 1.0
   send_bytes: 17
-  send_header: 0x0CAA
-  send_tail: 0xAC0A
-  receive_bytes: 3
-  receive_header: 0x5a
-  receive_tail: 0xa5
+  send_header: 0x55
+  send_tail: 0xAA
   reconnect_base_delay: 0.5
   reconnect_max_delay: 3.0
 
@@ -58,22 +55,6 @@ path_interp_res: 0.1
 
 # Path publish rate (Hz)
 path_pub_rate: 2.0
-
-# TGT arrival serial handshake
-tgt_serial:
-  port: "/dev/ttyUSB1"
-  baud_rate: 115200
-  timeout: 1.0
-  send_header: 0x0CAA
-  send_tail: 0xAC0A
-  tgt1_cmd: 0x31
-  tgt2_cmd: 0x32
-  receive_header: 0x5A
-  receive_tail: 0xA5
-  receive_ok: 0x01
-  receive_bytes: 3
-  reconnect_base_delay: 5.0
-  reconnect_max_delay: 5.0
 
 # ============================================================
 # Red scenario
@@ -97,16 +78,16 @@ red:
   # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
   id_to_coord:
   #    x    y   height
-    3: [-5.40, 3.80, 2.0]
+    3: [[-5.40, 3.80, 2.0], [-4.20, 2.60, 2.0]]
     4: [-3.00, 2.60, 1.0]
-    5: [-0.60, 3.80, 2.0]
+    5: [[-0.60, 3.80, 2.0], [-1.80, 2.60, 2.0]]
     6: [-5.40, 5.00, 3.0]
     8: [-0.60, 5.00, 1.0]
     9: [-5.40, 6.20, 2.0]
     11: [-0.60, 6.20, 2.0]
-    12: [-5.40, 7.40, 1.0]
+    12: [[-5.40, 7.40, 1.0], [-4.20, 8.60, 1.0]]
     13: [-3.00, 8.60, 2.0]
-    14: [-0.60, 7.40, 1.0]
+    14: [[-0.60, 7.40, 1.0], [-1.80, 8.60, 1.0]]
 
   # 图规划起止 K 节点
   start_k: "k3"
@@ -123,16 +104,16 @@ red:
 
   # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
   tgt_facing:
-    3: ref_yaw                              # +y (右)
-    4: ref_yaw + math.pi/2 * dir_correct    # +x (上)
-    5: ref_yaw + math.pi * dir_correct      # -y (左)
-    6: ref_yaw                              # +y
-    8: ref_yaw + math.pi * dir_correct      # -y
-    9: ref_yaw                              # +y
-    11: ref_yaw + math.pi * dir_correct     # -y
-    12: ref_yaw                             # +y
-    13: ref_yaw - math.pi/2 * dir_correct   # -x (下)
-    14: ref_yaw + math.pi * dir_correct     # -y
+    3: [ref_yaw, ref_yaw + math.pi/2 * dir_correct]                          # 右, 上
+    4: ref_yaw + math.pi/2 * dir_correct                                       # 上
+    5: [ref_yaw + math.pi * dir_correct, ref_yaw + math.pi/2 * dir_correct]   # 左, 上
+    6: ref_yaw                                                                  # 右
+    8: ref_yaw + math.pi * dir_correct                                          # 左
+    9: ref_yaw                                                                  # 右
+    11: ref_yaw + math.pi * dir_correct                                         # 左
+    12: [ref_yaw, ref_yaw - math.pi/2 * dir_correct]                           # 右, 下
+    13: ref_yaw - math.pi/2 * dir_correct                                       # 下
+    14: [ref_yaw + math.pi * dir_correct, ref_yaw - math.pi/2 * dir_correct]   # 左, 下
 
 # ============================================================
 # Blue scenario
@@ -152,18 +133,19 @@ blue:
     k4: [5.40, 8.60, 0.0]
 
   # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
+  # 3/5/12/14 位于拐角货架, 可从两条走廊到达, 各有 2 个坐标可选
   id_to_coord:
   #  x   y   height
-    3: [0.60, 3.80, 2.0]
+    3: [[0.60, 3.80, 2.0], [1.80, 2.60, 2.0]]
     4: [3.00, 2.60, 1.0]
-    5: [5.40, 3.80, 2.0]
+    5: [[5.40, 3.80, 2.0], [4.20, 2.60, 2.0]]
     6: [0.60, 5.00, 1.0]
     8: [5.40, 5.00, 3.0]
     9: [0.60, 6.20, 2.0]
     11: [5.40, 6.20, 2.0]
-    12: [0.60, 7.40, 1.0]
+    12: [[0.60, 7.40, 1.0], [1.80, 8.60, 1.0]]
     13: [3.00, 8.60, 2.0]
-    14: [5.40, 7.40, 1.0]
+    14: [[5.40, 7.40, 1.0], [4.20, 8.60, 1.0]]
 
   # 图规划起止 K 节点
   start_k: "k2"
@@ -182,13 +164,13 @@ blue:
 
   # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
   tgt_facing:
-    3: ref_yaw                              # +y (右)
-    4: ref_yaw + math.pi/2 * dir_correct    # +x (上)
-    5: ref_yaw + math.pi * dir_correct      # -y (左)
-    6: ref_yaw                              # +y
-    8: ref_yaw + math.pi * dir_correct      # -y
-    9: ref_yaw                              # +y
-    11: ref_yaw + math.pi * dir_correct     # -y
-    12: ref_yaw                             # +y
-    13: ref_yaw - math.pi/2 * dir_correct   # -x (下)
-    14: ref_yaw + math.pi * dir_correct     # -y
+    3: [ref_yaw, ref_yaw + math.pi/2 * dir_correct]                          # 右, 上
+    4: ref_yaw + math.pi/2 * dir_correct                                       # 上
+    5: [ref_yaw + math.pi * dir_correct, ref_yaw + math.pi/2 * dir_correct]   # 左, 上
+    6: ref_yaw                                                                  # 右
+    8: ref_yaw + math.pi * dir_correct                                          # 左
+    9: ref_yaw                                                                  # 右
+    11: ref_yaw + math.pi * dir_correct                                         # 左
+    12: [ref_yaw, ref_yaw - math.pi/2 * dir_correct]                           # 右, 下
+    13: ref_yaw - math.pi/2 * dir_correct                                       # 下
+    14: [ref_yaw + math.pi * dir_correct, ref_yaw - math.pi/2 * dir_correct]   # 左, 下

@@ -22,7 +22,18 @@ class GraphMapper:
         coord = self.id_map.get(idx)
         if coord is None:
             return None
+        if isinstance(coord[0], list):
+            return np.array(coord[0], dtype=np.float64)
         return np.array(coord, dtype=np.float64)
+
+    def id_to_coords(self, idx):
+        """Return all coordinate options for a KFS ID as np.array list."""
+        coord = self.id_map.get(idx)
+        if coord is None:
+            return []
+        if isinstance(coord[0], list):
+            return [np.array(c, dtype=np.float64) for c in coord]
+        return [np.array(coord, dtype=np.float64)]
 
     def _build_base_graph(self):
         nodes = [
@@ -161,16 +172,22 @@ def supplement_ids(mapper, required_ids, valid_ids=None):
     end_idx = cfg.k_index[cfg.end_k] + 1
 
     def _pair_cost(a, b):
-        c1 = mapper.id_to_coord(a)
-        c2 = mapper.id_to_coord(b)
-        if c1 is None or c2 is None:
+        coords_a = mapper.id_to_coords(a)
+        coords_b = mapper.id_to_coords(b)
+        if not coords_a or not coords_b:
             return float('inf')
-        nodes, adj = mapper.build_graph([c1, c2])
-        route = mapper.find_path(nodes, adj, start_idx, end_idx)
-        if not route:
-            return float('inf')
-        return sum(np.linalg.norm(route[i][1][:2] - route[i + 1][1][:2])
-                   for i in range(len(route) - 1))
+        best = float('inf')
+        for c1 in coords_a:
+            for c2 in coords_b:
+                nodes, adj = mapper.build_graph([c1, c2])
+                route = mapper.find_path(nodes, adj, start_idx, end_idx)
+                if not route:
+                    continue
+                cost = sum(np.linalg.norm(route[i][1][:2] - route[i + 1][1][:2])
+                           for i in range(len(route) - 1))
+                if cost < best:
+                    best = cost
+        return best
 
     if id_num == 0:
         best_pair = None
@@ -201,12 +218,13 @@ def supplement_ids(mapper, required_ids, valid_ids=None):
 
 # ========== 航点生成 (从 r1_polyline_planner.py _route_to_waypoints) ==========
 
-def route_to_waypoints(route, tgt_ids=None):
+def route_to_waypoints(route, tgt_ids=None, cfg=None):
     """将图规划 route → 航点列表 [(type, dx, dy, dyaw, name), ...].
 
     type: 'translate' 或 'rotate'
     """
-    cfg = get_config()
+    if cfg is None:
+        cfg = get_config()
     tgt_ids = tgt_ids or {}
     dir_c = cfg.dir_correct
 
@@ -228,15 +246,14 @@ def route_to_waypoints(route, tgt_ids=None):
                 if n >= 2 and route[1][0].startswith('TGT'):
                     tgt_id = tgt_ids.get(route[1][0])
                     if tgt_id is not None and tgt_id in cfg.tgt_facing:
-                        target_facing = cfg.tgt_facing[tgt_id]
+                        target_facing = cfg.get_tgt_facing(tgt_id, route[1][1])
                         dtheta = (target_facing - cfg.start_yaw) * dir_c
                     else:
                         dtheta = (headings[0] - cfg.start_yaw) * dir_c
                 else:
                     dtheta = (headings[0] - cfg.start_yaw) * dir_c
                 dtheta = math.atan2(math.sin(dtheta), math.cos(dtheta))
-                if abs(dtheta) > 0.001:
-                    wp.append(('rotate', 0.0, 0.0, dtheta, name))
+                wp.append(('rotate', 0.0, 0.0, dtheta, name))
         else:
             prev = route[i - 1][1]
             dx = coord[0] - prev[0]
@@ -248,7 +265,7 @@ def route_to_waypoints(route, tgt_ids=None):
                 if next_name.startswith('TGT'):
                     tgt_id = tgt_ids.get(next_name)
                     if tgt_id is not None and tgt_id in cfg.tgt_facing:
-                        target_facing = cfg.tgt_facing[tgt_id]
+                        target_facing = cfg.get_tgt_facing(tgt_id, route[i + 1][1])
                         dtheta = (target_facing - headings[i - 1]) * dir_c
                     else:
                         dtheta = (headings[i] - headings[i - 1]) * dir_c
@@ -283,31 +300,41 @@ def plan_graph(r1_ids, side="blue"):
     mapper = GraphMapper(cfg)
 
     id1, id2 = r1_ids[0], r1_ids[1]
-    c1 = mapper.id_to_coord(id1)
-    c2 = mapper.id_to_coord(id2)
-    if c1 is None or c2 is None:
-        return {"error": f"ID→coord failed: id1={id1}→{c1}, id2={id2}→{c2}"}
+    coords1 = mapper.id_to_coords(id1)
+    coords2 = mapper.id_to_coords(id2)
+    if not coords1 or not coords2:
+        return {"error": f"ID→coord failed: id1={id1}, id2={id2}"}
 
     tgt_ids = {"TGT1": id1, "TGT2": id2}
-
-    nodes, adj = mapper.build_graph([c1, c2])
     start_idx = cfg.k_index[cfg.start_k] + 1  # K_GRAPH_OFFSET=1
     end_idx = cfg.k_index[cfg.end_k] + 1
 
-    route = mapper.find_path(nodes, adj, start_idx, end_idx)
-    if not route:
+    best_result = None
+    best_cost = float('inf')
+
+    for c1 in coords1:
+        for c2 in coords2:
+            nodes, adj = mapper.build_graph([c1, c2])
+            route = mapper.find_path(nodes, adj, start_idx, end_idx)
+            if not route:
+                continue
+            route_nodes = [n for n, _ in route]
+            wps = route_to_waypoints(route, tgt_ids, cfg)
+            cost = sum(np.linalg.norm(route[i][1][:2] - route[i + 1][1][:2])
+                       for i in range(len(route) - 1))
+            if cost < best_cost:
+                best_cost = cost
+                best_result = {
+                    "waypoints": wps,
+                    "route_nodes": route_nodes,
+                    "tgt_coords": {
+                        "TGT1": (float(c1[0]), float(c1[1]), float(c1[2])),
+                        "TGT2": (float(c2[0]), float(c2[1]), float(c2[2])),
+                    },
+                    "start_k": cfg.start_k,
+                    "end_k": cfg.end_k,
+                }
+
+    if best_result is None:
         return {"error": "No graph route found"}
-
-    route_nodes = [n for n, _ in route]
-    wps = route_to_waypoints(route, tgt_ids)
-
-    return {
-        "waypoints": wps,
-        "route_nodes": route_nodes,
-        "tgt_coords": {
-            "TGT1": (float(c1[0]), float(c1[1]), float(c1[2])),
-            "TGT2": (float(c2[0]), float(c2[1]), float(c2[2])),
-        },
-        "start_k": cfg.start_k,
-        "end_k": cfg.end_k,
-    }
+    return best_result
