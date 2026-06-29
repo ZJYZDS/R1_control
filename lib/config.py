@@ -124,6 +124,9 @@ class AppConfig:
         self.known_coords = self._transform_coords()
         self.k_index = {"k1": 1, "k2": 2, "k3": 3, "k4": 4}
 
+        # ── TGT 坐标 (经 zero_point 变换) ──
+        self.id_to_coord = self._transform_id_coords()
+
     def _transform_coords(self):
         zp = self.zero_point
         yaw = zp.get("yaw", 0.0)
@@ -143,6 +146,29 @@ class AppConfig:
             dx, dy, dz = self.relative_positions.get(key, [0, 0, 0])
             coords.append(_transform(dx, dy, dz))
         return coords
+
+    def _transform_id_coords(self):
+        """对 id_to_coord 中所有 TGT 坐标做 zero_point 变换."""
+        zp = self.zero_point
+        yaw = zp.get("yaw", 0.0)
+        cos_yaw = math.cos(yaw)
+        sin_yaw = math.sin(yaw)
+
+        def _transform(local_x, local_y, local_z):
+            tx = zp["x"] + local_x
+            ty = zp["y"] + local_y
+            gx = tx * cos_yaw - ty * sin_yaw
+            gy = tx * sin_yaw + ty * cos_yaw
+            gz = zp["z"] + local_z
+            return [gx, gy, gz]
+
+        result = {}
+        for k, v in self.id_to_coord.items():
+            if isinstance(v[0], list):
+                result[k] = [_transform(*c) for c in v]
+            else:
+                result[k] = _transform(*v)
+        return result
 
     def get_height_map(self):
         hm = self.height_maps.get(self.side, self.height_maps.get("blue", {}))

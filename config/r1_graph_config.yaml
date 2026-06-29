@@ -63,8 +63,8 @@ path_pub_rate: 2.0
 #   x -> 向右为正  y -> 向上为正
 red:
   zero_point:
-    x: 0.0
-    y: 0.0
+    x: -0.085
+    y: 0.265
     z: 0.0
     yaw: 0.0
 
