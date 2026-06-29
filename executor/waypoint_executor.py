@@ -215,12 +215,14 @@ class WaypointExecutor:
                 if self.motion_phase == PHASE_ROTATE:
                     dx_cm = 0.0
                     dy_cm = 0.0
-                    dtheta = math.atan2(math.sin(tar_theta - cur_yaw),
-                                        math.cos(tar_theta - cur_yaw))
                 else:
-                    dx_cm = (tar_x - cur_x) * 100.0
-                    dy_cm = (tar_y - cur_y) * 100.0
-                    dtheta = 0.0
+                    dx_w = tar_x - cur_x
+                    dy_w = tar_y - cur_y
+                    cos_yaw = math.cos(cur_yaw)
+                    sin_yaw = math.sin(cur_yaw)
+                    dx_cm = (dx_w * cos_yaw + dy_w * sin_yaw) * 100.0
+                    dy_cm = (-dx_w * sin_yaw + dy_w * cos_yaw) * 100.0
+                dtheta = (tar_theta + 2 * math.pi) % (2 * math.pi)
 
                 # Format: header(1B) + cmd(1B) + 3 floats(12B LE) + tail(1B)
                 self.chassis_data[0] = c.chassis_send_header
