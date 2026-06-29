@@ -250,12 +250,9 @@ class WaypointExecutor:
             [orientation.x, orientation.y, orientation.z, orientation.w])
 
         c = self.cfg
-        # IMU → 车体中心偏置: x_imu - x_center = 0.265, y_center - y_imu = 0.05
-        imu_dx = 0.265
-        imu_dy = -0.05
-
-        cx = position.x - imu_dx * math.cos(yaw) + imu_dy * math.sin(yaw) + c.zero_point["x"]
-        cy = position.y - imu_dx * math.sin(yaw) - imu_dy * math.cos(yaw) + c.zero_point["y"]
+        # zero_point 在 θ=0 标定时已包含 IMU→中心偏置，无需实时旋转扣减
+        cx = position.x + c.zero_point["x"]
+        cy = position.y + c.zero_point["y"]
 
         self.current_absolute = [cx, cy, 0.0]
         self.current_yaw = yaw
