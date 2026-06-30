@@ -5,7 +5,7 @@ scenario: "blue"
 thresholds:
   dist_thre: 0.03
   angle_thre: 0.06
-  hold_duration: 1.0   # 阈值持续满足时间 (s), 判定航点到达
+  hold_duration: 2.0   # 阈值持续满足时间 (s), 判定航点到达
 
 # Serial port
 serial:
@@ -18,11 +18,12 @@ serial:
   receive_bytes: 3
   receive_header: 0x5a
   receive_tail: 0xa5
+  receive_ok: 0x01
 
 # Reconnection
 reconnect:
-  base_delay: 5.0
-  max_delay: 5.0
+  base_delay: 4.0
+  max_delay: 8.0
 
 # Waypoint execution
 waypoint_timeout: 1000.0
@@ -67,6 +68,12 @@ red:
     y: 0.315
     z: 0.0
     yaw: 0.0
+
+  zero_point2lidar_offset_x: -0.085
+  zero_point2lidar_offset_y: 0.265  # lidar_coord (under zero_point)
+
+  lidar2center_offset_x: -0.265
+  lidar2center_offset_y: -0.050   # center_coord - imu_coord(lidar_coord)
 
   relative_positions:
   #      x   y   z
@@ -124,6 +131,12 @@ blue:
     y: 0.0
     z: 0.0
     yaw: 0.0
+
+  zero_point2lidar_offset_x: 0.0
+  zero_point2lidar_offset_y: 0.0
+
+  lidar2center_offset_x: 0.0
+  lidar2center_offset_y: 0.0
 
   relative_positions:
   #  x   y   z

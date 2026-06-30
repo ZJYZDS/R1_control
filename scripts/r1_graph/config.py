@@ -28,6 +28,8 @@ def _eval_num(val, **ctx):
     Supports expressions like '(0.0 - ref_yaw) * dir_correct' with
     the given context variables.  Full-width parens are normalized.
     """
+    if isinstance(val, list):
+        return [_eval_num(v, **ctx) for v in val]
     if isinstance(val, (int, float)):
         return float(val)
     if isinstance(val, str):
@@ -79,7 +81,9 @@ def _load_id_coords():
     zp = _sc['zero_point']
     result = {}
     for k, v in _sc['id_to_coord'].items():
-        result[int(k)] = list(_transform_coord(v[0], v[1], v[2], zp))
+        # 货架可能有多个坐标, 取第一个
+        coord = v[0] if isinstance(v[0], list) else v
+        result[int(k)] = list(_transform_coord(coord[0], coord[1], coord[2], zp))
     return result
 
 
@@ -109,6 +113,7 @@ class Config:
     RECEIVE_BYTES = _cfg['serial']['receive_bytes']
     RECEIVE_HEADER = _cfg['serial']['receive_header']
     RECEIVE_TAIL = _cfg['serial']['receive_tail']
+    RECEIVE_OK = _cfg['serial'].get('receive_ok', 0x01)
 
     SERIAL_TIMEOUT = _cfg['serial']['timeout']
     RECONNECT_BASE_DELAY = _cfg['reconnect']['base_delay']
@@ -130,16 +135,3 @@ class Config:
 
     PATH_PUB_RATE = _cfg['path_pub_rate']
 
-    TGT_SERIAL_PORT = _cfg['tgt_serial']['port']
-    TGT_BAUD_RATE = _cfg['tgt_serial']['baud_rate']
-    TGT_SERIAL_TIMEOUT = _cfg['tgt_serial']['timeout']
-    TGT_SEND_HEADER = _cfg['tgt_serial']['send_header']
-    TGT_SEND_TAIL = _cfg['tgt_serial']['send_tail']
-    TGT1_CMD = _cfg['tgt_serial']['tgt1_cmd']
-    TGT2_CMD = _cfg['tgt_serial']['tgt2_cmd']
-    TGT_RECEIVE_HEADER = _cfg['tgt_serial']['receive_header']
-    TGT_RECEIVE_TAIL = _cfg['tgt_serial']['receive_tail']
-    TGT_RECEIVE_OK = _cfg['tgt_serial']['receive_ok']
-    TGT_RECEIVE_BYTES = _cfg['tgt_serial']['receive_bytes']
-    TGT_RECONNECT_BASE_DELAY = _cfg['tgt_serial']['reconnect_base_delay']
-    TGT_RECONNECT_MAX_DELAY = _cfg['tgt_serial']['reconnect_max_delay']

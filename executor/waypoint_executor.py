@@ -250,15 +250,16 @@ class WaypointExecutor:
             [orientation.x, orientation.y, orientation.z, orientation.w])
 
         c = self.cfg
-        # zero_point 是 θ=0 时 IMU→车体中心的偏置，车体旋转后需实时旋转补偿
-        # 旋转矩阵: [cx] = [cos(yaw)  -sin(yaw)] [zero_point.x]
-        #           [cy]   [sin(yaw)   cos(yaw)] [zero_point.y]
+        # position(IMU) → lidar（zero_point2lidar 不随旋转变化）
+        cx = position.x + c.zero_point2lidar["x"]
+        cy = position.y + c.zero_point2lidar["y"]
+        # lidar → 车体中心（lidar2center 是车体坐标系下的固定偏置，需随 yaw 旋转）
         cos_yaw = math.cos(yaw)
         sin_yaw = math.sin(yaw)
-        offset_x = c.zero_point["x"] * cos_yaw - c.zero_point["y"] * sin_yaw
-        offset_y = c.zero_point["x"] * sin_yaw + c.zero_point["y"] * cos_yaw
-        cx = position.x + offset_x
-        cy = position.y + offset_y
+        cx += c.lidar2center["x"] * cos_yaw - c.lidar2center["y"] * sin_yaw
+        cy += c.lidar2center["x"] * sin_yaw + c.lidar2center["y"] * cos_yaw
+
+
 
         self.current_absolute = [cx, cy, 0.0]
         self.current_yaw = yaw

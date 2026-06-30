@@ -61,14 +61,7 @@ class R1SequentialRunner:
         self.tgt_ids = {}
         self.wp_index = 0
         self.finished = False
-
-        # ── TGT 串口握手状态 ──
         self.waiting_tgt_response = False
-        self.current_tgt_name = None
-        self.tgt_serial_port = None
-        self.tgt_serial_fault = False
-        self.tgt_receive_buffer = bytearray()
-        self._tgt_serial_init()
 
         # ── /R1_grap_pos 确认机制 ──
         self.confirm_buffer = []
@@ -114,15 +107,9 @@ class R1SequentialRunner:
         # ── 独立线程 ──
         self.receive_thread = threading.Thread(target=self.receive_listener, daemon=True)
         self.receive_thread.start()
-        self.tgt_receive_thread = threading.Thread(target=self._tgt_receive_listener, daemon=True)
-        self.tgt_receive_thread.start()
-
         # 串口未连接时后台定时重连
         if self.serial_fault:
             threading.Thread(target=self.serial_reconnect, daemon=True).start()
-        if self.tgt_serial_fault:
-            threading.Thread(target=self._tgt_serial_reconnect, daemon=True).start()
-
         rospy.on_shutdown(self.shutdown_cleanup)
 
         rospy.loginfo("R1SequentialRunner ready.\n"
@@ -187,13 +174,10 @@ class R1SequentialRunner:
                     self.pub_arrive_tgt.publish(tgt_id)
                     rospy.loginfo(f"Arrived at {wp_name}, published /arrive_tgt id={tgt_id}")
                 if not self.waiting_tgt_response:
-                    # Send one chassis frame with height byte set
                     self.waypoint_height = self.waypoint_heights[self.wp_index]
                     self.serial_send()
-                    # Then TGT serial handshake
-                    self._send_tgt_arrival(wp_name)
                     self.waiting_tgt_response = True
-                    self.current_tgt_name = wp_name
+                    rospy.loginfo(f"Arrived at TGT {wp_name}, waiting for chassis ack")
             else:
                 # 非 TGT 航点 → 直接前进
                 rospy.loginfo(f"Arrived at non-TGT waypoint {wp_name}, auto-advancing")
@@ -439,113 +423,6 @@ class R1SequentialRunner:
                        f"delta ({dx:.3f},{dy:.3f},{dyaw:.3f}) "
                        f"height=0x{self.waypoint_height:02X}")
 
-    # ── TGT 串口握手 ──────────────────────────────────────────────────
-
-    def _tgt_serial_init(self):
-        try:
-            self.tgt_serial_port = serial.Serial(
-                Config.TGT_SERIAL_PORT, Config.TGT_BAUD_RATE,
-                timeout=Config.TGT_SERIAL_TIMEOUT)
-            self.tgt_serial_fault = False
-            rospy.loginfo(f"TGT serial {Config.TGT_SERIAL_PORT} opened")
-        except serial.SerialException as e:
-            rospy.logerr(f"TGT serial open failed: {e}")
-            self.tgt_serial_fault = True
-
-    def _tgt_serial_reconnect(self):
-        delay = Config.TGT_RECONNECT_BASE_DELAY
-        while not rospy.is_shutdown():
-            if self.tgt_serial_port and self.tgt_serial_port.is_open:
-                self.tgt_serial_fault = False
-                return True
-            rospy.logwarn(f"Reconnecting TGT serial {Config.TGT_SERIAL_PORT}... ({delay:.1f}s)")
-            time.sleep(delay)
-            self._tgt_serial_init()
-            if not self.tgt_serial_fault:
-                rospy.loginfo("TGT serial reconnected")
-                return True
-            delay = min(delay * 2, Config.TGT_RECONNECT_MAX_DELAY)
-        return False
-
-    def _send_tgt_arrival(self, wp_name):
-        if self.tgt_serial_fault:
-            self._tgt_serial_reconnect()
-            if self.tgt_serial_fault:
-                rospy.logerr("TGT serial unavailable, cannot send arrival frame")
-                return
-
-        try:
-            cmd = Config.TGT1_CMD if wp_name == "TGT1" else Config.TGT2_CMD
-            frame = bytearray()
-            h = Config.TGT_SEND_HEADER
-            frame.extend(struct.pack('>H' if h > 0xFF else '>B', h))
-            frame.append(cmd)
-            t = Config.TGT_SEND_TAIL
-            frame.extend(struct.pack('>H' if t > 0xFF else '>B', t))
-            self.tgt_serial_port.write(frame)
-            rospy.loginfo(f"Sent TGT arrival frame for {wp_name}: "
-                          f"header=0x{h:04X} cmd=0x{cmd:02X} tail=0x{t:04X}")
-        except serial.SerialException as e:
-            rospy.logerr(f"TGT serial send failed: {e}")
-            self.tgt_serial_fault = True
-
-    def _tgt_receive_listener(self):
-        HEADER = Config.TGT_RECEIVE_HEADER
-        TAIL = Config.TGT_RECEIVE_TAIL
-        FRAME_LEN = Config.TGT_RECEIVE_BYTES
-
-        while not rospy.is_shutdown():
-            if (self.tgt_serial_fault or not self.tgt_serial_port
-                    or not self.tgt_serial_port.is_open):
-                time.sleep(0.5)
-                continue
-
-            if not self.waiting_tgt_response:
-                time.sleep(0.1)
-                continue
-
-            try:
-                waiting = self.tgt_serial_port.in_waiting
-                if waiting > 0:
-                    raw = self.tgt_serial_port.read(waiting)
-                    self.tgt_receive_buffer.extend(raw)
-
-                buf = self.tgt_receive_buffer
-                while len(buf) >= FRAME_LEN:
-                    head_val = HEADER.to_bytes(1 if HEADER <= 0xFF else 2, 'big')
-                    head_pos = buf.find(head_val)
-                    if head_pos < 0:
-                        buf.clear()
-                        break
-                    if head_pos > 0:
-                        del buf[:head_pos]
-                    if len(buf) < FRAME_LEN:
-                        break
-                    if buf[FRAME_LEN - 1] == TAIL & 0xFF:
-                        status = buf[1]
-                        rospy.loginfo(f"TGT response: 0x{status:02X}")
-                        if status == Config.TGT_RECEIVE_OK:
-                            rospy.loginfo(f"TGT {self.current_tgt_name} acknowledged, advancing")
-                            del buf[:FRAME_LEN]
-                            self.waiting_tgt_response = False
-                            self.current_tgt_name = None
-                            self.wp_index += 1
-                            self._start_waypoint(self.wp_index)
-                        else:
-                            rospy.logwarn(f"TGT unexpected response: 0x{status:02X}")
-                            del buf[:FRAME_LEN]
-                    else:
-                        del buf[0]
-
-                if len(buf) > 1024:
-                    rospy.logwarn(f"TGT receive buffer overflow ({len(buf)} bytes), clearing")
-                    buf.clear()
-
-            except serial.SerialException as e:
-                rospy.logwarn(f"TGT serial receive error: {e}")
-                self.tgt_serial_fault = True
-            time.sleep(0.01)
-
     # ── 串口 ────────────────────────────────────────────────────────
 
     def serial_init(self):
@@ -644,6 +521,11 @@ class R1SequentialRunner:
                     if buf[FRAME_LEN - 1] == TAIL:
                         status = buf[1]
                         rospy.logdebug(f"下位机应答: 0x{status:02x}")
+                        if self.waiting_tgt_response and status == Config.RECEIVE_OK:
+                            rospy.loginfo(f"TGT chassis ack 0x{status:02X}, advancing")
+                            self.waiting_tgt_response = False
+                            self.wp_index += 1
+                            self._start_waypoint(self.wp_index)
                         del buf[:FRAME_LEN]
                     else:
                         del buf[0]
@@ -685,8 +567,6 @@ class R1SequentialRunner:
     def shutdown_cleanup(self):
         if self.serial_port and self.serial_port.is_open:
             self.serial_port.close()
-        if self.tgt_serial_port and self.tgt_serial_port.is_open:
-            self.tgt_serial_port.close()
         rospy.loginfo("串口已关闭, 资源释放完成")
 
 

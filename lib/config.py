@@ -46,6 +46,14 @@ class AppConfig:
 
         self.scenario = side
         self.zero_point = sc.get("zero_point", {"x": 0, "y": 0, "z": 0, "yaw": 0})
+        self.zero_point2lidar = {
+            "x": float(sc.get("zero_point2lidar_offset_x", 0.0)),
+            "y": float(sc.get("zero_point2lidar_offset_y", 0.0)),
+        }
+        self.lidar2center = {
+            "x": float(sc.get("lidar2center_offset_x", 0.0)),
+            "y": float(sc.get("lidar2center_offset_y", 0.0)),
+        }
         self.relative_positions = sc.get("relative_positions", {})
         self.id_to_coord = sc.get("id_to_coord", {})
         self.start_k = sc.get("start_k", "k3")
