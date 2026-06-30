@@ -127,16 +127,16 @@ red:
 # ============================================================
 blue:
   zero_point:
-    x: 0.0
-    y: 0.0
+    x: 0.35
+    y: 0.315
     z: 0.0
     yaw: 0.0
 
-  zero_point2lidar_offset_x: 0.0
-  zero_point2lidar_offset_y: 0.0
+  zero_point2lidar_offset_x: 0.085
+  zero_point2lidar_offset_y: 0.265  # lidar_coord (under zero_point)
 
-  lidar2center_offset_x: 0.0
-  lidar2center_offset_y: 0.0
+  lidar2center_offset_x: 0.265
+  lidar2center_offset_y: -0.050   # center_coord - imu_coord(lidar_coord)
 
   relative_positions:
   #  x   y   z
