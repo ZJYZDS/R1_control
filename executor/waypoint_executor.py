@@ -60,12 +60,12 @@ class WaypointExecutor:
         self.waypoint_start_time = None
         self.active = False  # 是否有航点在执行
 
-        # ── 底盘串口 ──
+        # ── 底盘串口 (延迟到 KFS 触发后初始化, 共享同一物理口) ──
         self.chassis_serial = None
         self.chassis_fault = False
         self.chassis_lock = threading.Lock()
         self.chassis_data = bytearray(self.cfg.chassis_send_bytes)
-        self._chassis_init()
+        self._chassis_ready = False
 
         # ── ROS ──
         self.pub_fault = rospy.Publisher("/area12/fault", String, queue_size=10)
@@ -82,7 +82,8 @@ class WaypointExecutor:
         rospy.on_shutdown(self._cleanup)
         rospy.loginfo(f"[Executor] 已启动, side={side}, "
                       f"test_scene={test_scene}, "
-                      f"KFS port={self.cfg.serial_port}, "
+                      f"KFS={self.cfg.serial_port}, "
+                      f"cmd_serial={self.cfg.command_port}, "
                       f"chassis={self.cfg.chassis_port}")
 
     # ==================== KFS → pipeline ====================
@@ -95,6 +96,15 @@ class WaypointExecutor:
         if "error" in result:
             rospy.logerr(f"[Executor] pipeline 失败: {result['error']}")
             return
+
+        # KFS 已完成使命, 关闭 KFS 串口, 释放给底盘使用
+        if hasattr(self, '_kfs_reader') and self._kfs_reader:
+            self._kfs_reader.stop()
+            rospy.loginfo("[Executor] KFS 串口已关闭, 切换到底盘模式")
+
+        # 初始化底盘串口 (与 KFS 共用同一物理口)
+        self._chassis_init()
+        self._chassis_ready = True
 
         abs_wps = result.get("absolute_waypoints")
         if not abs_wps:
@@ -116,6 +126,26 @@ class WaypointExecutor:
         rospy.loginfo(f"[Executor] /path/commands: {cmd_str}")
         rospy.loginfo(f"[Executor] Binary ({len(binary_cmds)} bytes): {fmt_hex(binary_cmds)}")
 
+        # 通过命令串口发送二进制指令
+        self._send_command_serial(binary_cmds)
+
+    def _send_command_serial(self, payload):
+        """发送命令二进制帧: [header(1B) | commands(N bytes) | tail(1B)].
+
+        header: red→0x11, blue→0x22
+        """
+        c = self.cfg
+        hdr = c.command_header[self.side]
+        frame = bytes([hdr]) + bytes(payload) + bytes([c.command_tail])
+        try:
+            ser = serial.Serial(c.command_port, c.command_baud, timeout=c.command_timeout)
+            ser.write(frame)
+            ser.close()
+            rospy.loginfo(f"[Executor] 命令帧已发送到 {c.command_port}: "
+                          f"{fmt_hex(frame)}")
+        except serial.SerialException as e:
+            rospy.logerr(f"[Executor] 命令串口 {c.command_port} 发送失败: {e}")
+
     # ==================== 测试场景 ====================
 
     def _init_test_scene(self):
@@ -134,6 +164,8 @@ class WaypointExecutor:
             return
 
         self._load_absolute_waypoints(abs_wps)
+        self._chassis_init()
+        self._chassis_ready = True
         rospy.loginfo(f"[Executor] test scene 航点已加载, 开始执行")
 
     # ==================== 航点加载 (共享) ====================
@@ -193,6 +225,8 @@ class WaypointExecutor:
     def _chassis_send(self):
         """两阶段串口发送: ROTATE 只发 dtheta, TRANSLATE 发 (dx, dy, dtheta)."""
         if not self.active or self.target is None:
+            return
+        if not self._chassis_ready:
             return
         if self.chassis_fault:
             self._chassis_reconnect()

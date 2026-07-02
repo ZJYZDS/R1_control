@@ -51,32 +51,16 @@ kfs_scoring:
 ros_defaults:
   start:        [1, 5]      # 默认起点 (x, y)
   target:       [2, 0]      # 默认终点
-  grid_row_offset: 2        # 3×3 网格 → 地图坐标的 y 偏移
-  r2_already_collected: 0   # 前两行已取 R2 数量
-
-# ---------- 串口通信 ----------
-serial:
-  port: "/dev/ttyUSB0"
-  baudrate: 115200
-  timeout: 1.0
-  fixed_buf_len: 25          # 发送缓冲区固定长度, 不足补末位字节
-  frame_header: 0x66         # 帧头 (十六进制)
-  frame_tail:   0x99         # 帧尾 (十六进制)
-
-# ---------- 朝向初始化 ----------
-orientation:
-  init_angle: 0.0
-  init_is_clockwise: 1      # -1 表示顺时针为正
 
 # ---------- 测试预设场景 ----------
 test_scenes:
   1:
-    side: blue
+    side: red
     start:  [1, 5]
     target: [0, 0]
     fake:   [0, 1]
     r1: [[0, 3], [2, 2], [2, 1]]
-    r2: [[0, 4], [1, 3], [1, 1], [0, 2]]
+    r2: [[0, 4], [1, 4], [2, 4], [0, 2]]
   2:
     side: blue
     start:  [1, 5]

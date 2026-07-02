@@ -79,14 +79,23 @@ class AppConfig:
         self.angle_thre = th.get("angle_thre", 0.06)
         self.hold_duration = th.get("hold_duration", 1.0)
 
-        # KFS 串口
-        ser = self.graph_cfg.get("serial", {})
-        self.serial_port = ser.get("port", "/dev/ttyUSB0")
-        self.serial_baud = ser.get("baud_rate", 115200)
-        self.send_header = ser.get("send_header", 0x0CAA)
-        self.send_tail = ser.get("send_tail", 0xAC0A)
+        # ① KFS 串口 (接收 4×3 网格)
+        kfs = self.graph_cfg.get("kfs_serial", {})
+        self.serial_port = kfs.get("port", "/dev/ttyACM0")
+        self.serial_baud = kfs.get("baud_rate", 115200)
 
-        # 底盘串口 (waypoint 执行)
+        # ② 命令发送串口 (发送 commands 二进制数组)
+        cmd_ser = self.graph_cfg.get("command_serial", {})
+        self.command_port = cmd_ser.get("port", "/dev/ttyUSB1")
+        self.command_baud = cmd_ser.get("baud_rate", 115200)
+        self.command_timeout = cmd_ser.get("timeout", 1.0)
+        self.command_header = {
+            "red": cmd_ser.get("header_red", 0x11),
+            "blue": cmd_ser.get("header_blue", 0x22),
+        }
+        self.command_tail = cmd_ser.get("tail", 0xFF)
+
+        # ③ 底盘串口 (waypoint 执行)
         ch = self.graph_cfg.get("chassis_serial", {})
         self.chassis_port = ch.get("port", "/dev/ttyCHASSIS")
         self.chassis_baud = ch.get("baud_rate", 115200)

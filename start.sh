@@ -2,24 +2,27 @@
 # R1 控制总管道启动脚本
 #
 # Usage:
-#   ./start.sh                          # 默认串口模式, 红方
-#   ./start.sh --test-scene 1 --blue    # 测试场景 1, 蓝方
+#   ./start.sh --serial --red              # 串口模式 (端口从 YAML 读取)
+#   ./start.sh --test-scene 1 --blue       # 测试场景 1, 蓝方
+#
+# 串口 (均由 r1_graph_config.yaml 配置):
+#   KFS 串口:     接收 4×3 货架网格 → 触发 pipeline 规划
+#   命令发送串口:  规划完成后发送 /path/commands 二进制数组 (header: red→0x11, blue→0x22)
+#   底盘控制串口:  航点执行时发送 dx/dy/dtheta 运动指令
 
 set -e
 
 # ── 默认值 ──
 MODE="serial"
-SERIAL_PORT="/dev/ttyUSB0"
 TEST_SCENE=""
 SIDE="blue"
 
-# ── 参数解析 (放在最前面) ──
+# ── 参数解析 ──
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --serial)
             MODE="serial"
-            SERIAL_PORT="$2"
-            shift 2
+            shift
             ;;
         --test-scene)
             MODE="test"
@@ -44,11 +47,30 @@ done
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── 读取串口配置 ──
+KFS_PORT=$(python3 -c "
+import yaml
+with open('config/r1_graph_config.yaml') as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('kfs_serial', {}).get('port', '/dev/ttyACM0'))
+")
+CMD_PORT=$(python3 -c "
+import yaml
+with open('config/r1_graph_config.yaml') as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('command_serial', {}).get('port', '/dev/ttyUSB1'))
+")
+CHASSIS_PORT=$(python3 -c "
+import yaml
+with open('config/r1_graph_config.yaml') as f:
+    cfg = yaml.safe_load(f)
+print(cfg.get('chassis_serial', {}).get('port', '/dev/ttyACM0'))
+")
+
 # ── Ctrl+C 关闭所有窗口 ──
 cleanup() {
     echo ""
     echo "[start.sh] 正在关闭所有窗口..."
-    # 杀掉子终端里的 bash 进程 → 窗口自动关闭
     for f in /tmp/r1_livox.pid /tmp/r1_mapping.pid; do
         [[ -f "$f" ]] && kill $(cat "$f") 2>/dev/null
         rm -f "$f"
@@ -65,7 +87,9 @@ echo "  Side:      ${SIDE}"
 if [ "$MODE" = "test" ]; then
     echo "  Scene:     ${TEST_SCENE}"
 else
-    echo "  Serial:    ${SERIAL_PORT}"
+    echo "  KFS serial:    ${KFS_PORT}"
+    echo "  Cmd serial:    ${CMD_PORT}"
+    echo "  Chassis:       ${CHASSIS_PORT}"
 fi
 echo "========================================"
 
@@ -88,6 +112,6 @@ if [ "$MODE" = "test" ]; then
     echo "[start.sh] 启动 waypoint executor (test scene ${TEST_SCENE})..."
     python3 executor/waypoint_executor.py --test-scene="$TEST_SCENE" --"$SIDE"
 else
-    echo "[start.sh] 启动 waypoint executor (KFS serial)..."
+    echo "[start.sh] 启动 waypoint executor (串口模式)..."
     python3 executor/waypoint_executor.py --"$SIDE"
 fi

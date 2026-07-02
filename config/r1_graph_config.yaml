@@ -1,68 +1,94 @@
-# Active scenario: "red" or "blue" (env R1_SCENARIO 优先)
+# ============================================================
+# R1 Control — 统一配置文件
+# ============================================================
+#
+# 坐标轴约定:
+#   x 轴: 向右为正
+#   y 轴: 向上为正
+#   朝向 0°: +y 轴方向
+#   dir_correct = +1: 逆时针旋转为正
+#   dtheta = (target_heading - ref_yaw) * dir_correct
+#
+# ============================================================
+
+# ── 当前场景 (red / blue), 可通过 R1_SCENARIO 环境变量覆盖 ──
 scenario: "blue"
 
-# Pose / angle thresholds
+# ============================================================
+# 通用控制参数
+# ============================================================
+
+# ── 航点到达判定阈值 ──
 thresholds:
-  dist_thre: 0.03
-  angle_thre: 0.06
-  hold_duration: 2.0   # 阈值持续满足时间 (s), 判定航点到达
+  dist_thre: 0.03         # 位置误差阈值 (m)
+  angle_thre: 0.06        # 角度误差阈值 (rad)
+  hold_duration: 2.0      # 阈值稳定持续时间 (s), 防止抖动
 
-# Serial port
-serial:
-  port: "/dev/ttyACM0"
-  baud_rate: 115200
-  timeout: 1.0
-  send_bytes: 18
-  send_header: 0x0CAA
-  send_tail: 0xAC0A
-  receive_bytes: 3
-  receive_header: 0x5a
-  receive_tail: 0xa5
-  receive_ok: 0x01
+# ── 航点执行超时 ──
+waypoint_timeout: 1000.0  # 单航点最大执行时间 (s), 超时发布 fault 并强制推进
 
-# Reconnection
-reconnect:
-  base_delay: 4.0
-  max_delay: 8.0
+# ── KFS 网格确认帧数 ──
+n_confirm: 3              # 连续收到相同 4×3 网格的帧数, 确认后触发 pipeline 规划
 
-# Waypoint execution
-waypoint_timeout: 1000.0
+# ── 图规划参数 ──
+turn_90_penalty: 2.0      # 90° 转弯代价 (m), 加入 Dijkstra 边权
+path_interp_res: 0.1      # 路径插值分辨率 (仅供 rviz 可视化)
+path_pub_rate: 2.0        # 路径发布频率 (Hz)
 
-# 底盘串口 (waypoint 执行用)
+# ── 硬件机械偏置 (固定值, 无需标定) ──
+offsets:
+  imu: [0.011, -0.02329, 0.04412]   # IMU 安装偏置 (m)
+  lidar_x: 0.28                      # LiDAR x 方向偏置 (m)
+  lidar_y: -0.04542                  # LiDAR y 方向偏置 (m)
+
+# ============================================================
+# 串口配置 (3 路串口, 各司其职)
+# ============================================================
+
+# ── ① KFS 串口 ──
+#     作用: 接收上位机发送的 4×3 货架网格数据
+#     帧格式: [0x5A | 12×uint8 (4 rows × 3 cols) | 0xA5]
+#     每帧 14 字节, 连续 n_confirm 帧一致后触发 pipeline 规划
+kfs_serial:
+  port: "/dev/ttyACM0"         # KFS 输入串口设备
+  baud_rate: 115200            # 波特率
+
+# ── ② 命令发送串口 ──
+#     作用: pipeline 规划完成后, 将 /path/commands 二进制数组发送给上位机
+#     帧格式: [header(1B) | commands(N bytes, 变长) | tail(1B)]
+#     header: red → 0x11, blue → 0x22 (由 --red/--blue 决定)
+command_serial:
+  port: "/dev/ttyUSB1"         # 命令输出串口设备
+  baud_rate: 115200            # 波特率
+  timeout: 1.0                 # 串口超时 (s)
+  header_red: 0x11             # 红方帧头
+  header_blue: 0x22            # 蓝方帧头
+  tail: 0xFF                   # 帧尾 (可调整)
+
+# ── ③ 底盘控制串口 ──
+#     作用: 航点执行阶段, 向底盘发送 (dx_cm, dy_cm, dtheta) 运动指令
+#     帧格式: [0x55 | cmd(1B) | dx/dy/dtheta (3×float32 LE, 12B) | 0xAA]
+#     两阶段控制: ROTATE 阶段发 (0, 0, dtheta), TRANSLATE 阶段发 (dx, dy, dtheta)
 chassis_serial:
-  port: "/dev/ttyACM0"
-  baud_rate: 115200
-  timeout: 1.0
-  send_bytes: 15
-  send_header: 0x55
-  send_tail: 0xAA
-  reconnect_base_delay: 0.5
-  reconnect_max_delay: 3.0
-
-# /R1_grap_pos confirmation count
-n_confirm: 3
-
-# 90° turn penalty (meters, added to edge cost)
-turn_90_penalty: 2.0
-
-# Path interpolation resolution (visualization only)
-path_interp_res: 0.1
-
-# Path publish rate (Hz)
-path_pub_rate: 2.0
+  port: "/dev/ttyACM0"              # 底盘控制串口 (可能与 KFS 共用同一物理口)
+  baud_rate: 115200                 # 波特率
+  timeout: 1.0                      # 串口超时 (s)
+  send_bytes: 15                    # 发送帧长度 (header + cmd + 12B payload + tail)
+  send_header: 0x55                 # 帧头
+  send_tail: 0xAA                   # 帧尾
+  reconnect_base_delay: 0.5         # 断连重试初始间隔 (s), 逐次翻倍
+  reconnect_max_delay: 3.0          # 断连重试最大间隔 (s)
 
 # ============================================================
-# Red scenario
+# Red 场景 (红方)
 # ============================================================
-
-#   x -> 向右为正  y -> 向上为正
-# lidar <-> zero_point x: -0.085
-# lidar <-> zero_point y: +0.265
-
-# center <-> lidar x: -0.265
-# center <-> lidar y: -0.050
-
 red:
+  # ── 坐标系标定参数 ──
+  # zero_point:             全局坐标系原点 (世界参考点), 当前未在代码中使用, 保留
+  # zero_point2lidar:       FAST-LIO 上电时 LiDAR/IMU 在世界帧中的坐标 (m), 不随 yaw 旋转
+  # lidar2center:           车体坐标系下 LiDAR/IMU → 车体中心的偏置 (m), 随 yaw 旋转
+  #
+  # 车体中心世界坐标 = IMU_odom + zero_point2lidar + lidar2center * R(yaw)
   zero_point:
     x: -0.35
     y: 0.315
@@ -70,21 +96,24 @@ red:
     yaw: 0.0
 
   zero_point2lidar_offset_x: -0.085
-  zero_point2lidar_offset_y: 0.265  # lidar_coord (under zero_point)
+  zero_point2lidar_offset_y: 0.265    # LiDAR 在世界帧的坐标 (上电时)
 
   lidar2center_offset_x: -0.265
-  lidar2center_offset_y: -0.050   # center_coord - imu_coord(lidar_coord)
+  lidar2center_offset_y: -0.050       # 车体中心 - IMU (车体系偏置)
 
+  # ── K 节点坐标 (世界帧, 相对零点) ──
   relative_positions:
-  #      x   y   z
+  #    x      y     z
     k1: [-5.40, 8.60, 0.0]
     k2: [-5.40, 2.60, 0.0]
     k3: [-0.60, 2.60, 0.0]
     k4: [-0.60, 8.60, 0.0]
 
-  # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
+  # ── 货架坐标 (KFS ID → 世界帧坐标 + 货架层高) ──
+  #     world_z = 层高 (1=底层, 2=中层, 3=高层)
+  #     3/5/12/14 位于拐角货架, 有 2 个可选坐标 (对应两条走廊方向)
   id_to_coord:
-  #    x    y   height
+  #  KFS ID     x      y    height
     3: [[-5.40, 3.80, 2.0], [-4.20, 2.60, 2.0]]
     4: [-3.00, 2.60, 1.0]
     5: [[-0.60, 3.80, 2.0], [-1.80, 2.60, 2.0]]
@@ -96,20 +125,21 @@ red:
     13: [-3.00, 8.60, 2.0]
     14: [[-0.60, 7.40, 1.0], [-1.80, 8.60, 1.0]]
 
-  # 图规划起止 K 节点
-  start_k: "k3"
-  end_k: "k4"
+  # ── 图规划起止节点 ──
+  start_k: "k3"             # 起始 K 节点
+  end_k: "k4"               # 终点 K 节点
 
-  # 旋转计算参数: dtheta = (target_theta - ref_yaw) * dir_correct
-  ref_yaw: 0.0       # 参考零朝向 (rad), 0=+y 轴（右）
-  dir_correct: 1         # 旋转方向修正, 1 或 -1
+  # ── 旋转角度参数 ──
+  #     dtheta = (target_heading_rad - ref_yaw) * dir_correct
+  #     heading_rad: atan2(dx, dy), +y 轴为 0
+  ref_yaw: 0.0              # 参考零朝向 (rad), 0 = +y 轴方向
+  dir_correct: 1            # 旋转方向修正因子, +1 逆时针为正, -1 顺时针为正
 
-  # 起始 K 节点的初始朝向 (rad)
-  start_yaw: （0.0 - ref_yaw）* dir_correct
-  # 末尾 K 节点的最终朝向 (rad)
-  target_end_yaw: (0.0 - ref_yaw) * dir_correct
+  start_yaw: （0.0 - ref_yaw）* dir_correct        # 起始 K 节点的初始朝向 (rad)
+  target_end_yaw: (0.0 - ref_yaw) * dir_correct    # 终点 K 节点的最终朝向 (rad)
 
-  # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
+  # ── TGT 货架到达后面向场内 (梅林方向) ──
+  #     角度表达式与 ref_yaw / dir_correct 同约定
   tgt_facing:
     3: [ref_yaw, ref_yaw + math.pi/2 * dir_correct]                          # 右, 上
     4: ref_yaw + math.pi/2 * dir_correct                                       # 上
@@ -123,9 +153,11 @@ red:
     14: [ref_yaw + math.pi * dir_correct, ref_yaw - math.pi/2 * dir_correct]   # 左, 下
 
 # ============================================================
-# Blue scenario
+# Blue 场景 (蓝方)
 # ============================================================
 blue:
+  # ── 坐标系标定参数 ──
+  #     与 Red 对称, 坐标 x 取反
   zero_point:
     x: 0.35
     y: 0.315
@@ -133,22 +165,23 @@ blue:
     yaw: 0.0
 
   zero_point2lidar_offset_x: 0.085
-  zero_point2lidar_offset_y: 0.265  # lidar_coord (under zero_point)
+  zero_point2lidar_offset_y: 0.265    # LiDAR 在世界帧的坐标 (上电时)
 
   lidar2center_offset_x: 0.265
-  lidar2center_offset_y: -0.050   # center_coord - imu_coord(lidar_coord)
+  lidar2center_offset_y: -0.050       # 车体中心 - IMU (车体系偏置)
 
+  # ── K 节点坐标 (世界帧, 相对零点) ──
   relative_positions:
-  #  x   y   z
+  #   x     y     z
     k1: [0.60, 8.60, 0.0]
     k2: [0.60, 2.60, 0.0]
     k3: [5.40, 2.60, 0.0]
     k4: [5.40, 8.60, 0.0]
 
-  # KFS height (z): 0x01→1.0  0x02→2.0  0x03→3.0
-  # 3/5/12/14 位于拐角货架, 可从两条走廊到达, 各有 2 个坐标可选
+  # ── 货架坐标 (KFS ID → 世界帧坐标 + 货架层高) ──
+  #     3/5/12/14 位于拐角货架, 有 2 个可选坐标
   id_to_coord:
-  #  x   y   height
+  #  KFS ID    x     y    height
     3: [[0.60, 3.80, 2.0], [1.80, 2.60, 2.0]]
     4: [3.00, 2.60, 1.0]
     5: [[5.40, 3.80, 2.0], [4.20, 2.60, 2.0]]
@@ -160,22 +193,18 @@ blue:
     13: [3.00, 8.60, 2.0]
     14: [[5.40, 7.40, 1.0], [4.20, 8.60, 1.0]]
 
-  # 图规划起止 K 节点
-  start_k: "k2"
-  end_k: "k1"
+  # ── 图规划起止节点 ──
+  start_k: "k2"             # 起始 K 节点
+  end_k: "k1"               # 终点 K 节点
 
-  # 旋转计算参数: dtheta = (target_theta - ref_yaw) * dir_correct
+  # ── 旋转角度参数 ──
+  ref_yaw: 0.0              # 参考零朝向 (rad), 0 = +y 轴方向
+  dir_correct: 1            # 旋转方向修正因子, +1 逆时针为正
 
-  # x轴向右为正 , y轴向上为正
-  ref_yaw: 0.0       # 参考零朝向 (rad), 0=+y 轴
-  dir_correct: 1         # 旋转方向修正, 1 或 -1   (1 代表逆时针为正)
+  start_yaw: （0.0 - ref_yaw）* dir_correct        # 起始 K 节点的初始朝向 (rad)
+  target_end_yaw: (0.0 - ref_yaw) * dir_correct    # 终点 K 节点的最终朝向 (rad)
 
-  # 起始 K 节点的初始朝向 (rad)
-  start_yaw: （0.0 - ref_yaw）* dir_correct
-  # 末尾 K 节点的最终朝向 (rad)
-  target_end_yaw: (0.0 - ref_yaw) * dir_correct
-
-  # TGT 到达后朝向梅林（面向场内）, 角度与 ref_yaw/dir_correct 同约定
+  # ── TGT 货架到达后面向场内 (梅林方向) ──
   tgt_facing:
     3: [ref_yaw, ref_yaw + math.pi/2 * dir_correct]                          # 右, 上
     4: ref_yaw + math.pi/2 * dir_correct                                       # 上

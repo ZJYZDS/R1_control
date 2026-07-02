@@ -121,7 +121,6 @@ def generate_commands(path, r2_list, r1_list, required_r2, height_map):
                     turned_for_r2 = True
 
         face_action = _dir_name(new_face_dx, new_face_dy)
-        turn_back_action = _dir_name(nxt[0] - x, nxt[1] - y) if turned_for_r2 else None
 
         if h_diff > 0:
             move_action = f"move_up_{h_diff}"
@@ -130,12 +129,14 @@ def generate_commands(path, r2_list, r1_list, required_r2, height_map):
         else:
             move_action = f"move_{direction}"
 
-        is_perimeter_h = (move_action.startswith("move_left") or move_action.startswith("move_right")) and (y == 0 or y == 5)
-        step_actions = [] if is_perimeter_h else [face_action]
+        # 无高度差: 全向轮可任意方向平移, 只有侧向取 R2 才需转向
+        # 有高度差: 必须正向行驶, face 不可省略
+        if turned_for_r2 or h_diff != 0:
+            step_actions = [face_action]
+        else:
+            step_actions = []
         if take_action:
             step_actions.append(take_action)
-        if turn_back_action:
-            step_actions.append(turn_back_action)
         step_actions.append(move_action)
         all_actions.append("+".join(step_actions))
 
